@@ -1,5 +1,18 @@
-//! Colour and emphasis, as ANSI escape codes, and the visible width of
-//! styled text.
+//! Colour and emphasis, as ANSI escape codes, the visible width of
+//! styled text, and the few layout tools the components need: padding,
+//! borders, margins, joining blocks side by side or one above another,
+//! wrapping, truncating and cutting by display width.
+
+mod border;
+mod layout;
+mod render;
+
+pub use border::Border;
+pub use layout::{
+    Position, block_width, cut, height, join_horizontal, join_vertical, truncate_with, wrap,
+};
+#[cfg(feature = "bubbles")]
+pub(crate) use layout::{round_clamped, to_f64};
 
 /// A terminal colour.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,22 +80,63 @@ const ATTRIBUTES: [(u8, &str); 5] = [
     (REVERSE, "7"),
 ];
 
-/// A style: colours and emphasis, applied with [`Style::paint`].
+/// A style: colours and emphasis, applied to a line with
+/// [`Style::paint`], and the box around a block of text (padding,
+/// border, margins, a width and a height), applied with
+/// [`Style::render`]: the small part of Lip Gloss's `Style` that the
+/// [`bubbles`](crate::bubbles) components use.
+///
+/// ```
+/// use petitcarnets::style::{Border, Color, Style};
+///
+/// let label = Style::new().fg(Color::Palette(212)).padding(0, 1);
+/// assert_eq!(petitcarnets::style::strip_ansi(&label.render("hi")), " hi ");
+/// let boxed = Style::new().border(Border::ROUNDED).render("hi");
+/// assert_eq!(boxed, "╭──╮\n│hi│\n╰──╯");
+/// ```
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Style {
     fg: Option<Color>,
     bg: Option<Color>,
     attributes: u8,
+    frame: Frame,
 }
 
+/// The box parts of a style: padding and margins (top, right, bottom,
+/// left), the border and its sides, and the size.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Frame {
+    padding: [u16; 4],
+    margin: [u16; 4],
+    border: Option<Border>,
+    /// Which sides have a border, top, right, bottom, left as bits 0 to
+    /// 3, and bit 4 once any side was set (else a border has all four).
+    sides: u8,
+    border_fg: Option<Color>,
+    width: u16,
+    height: u16,
+}
+
+/// Set once [`Style::border_sides`] chose the sides.
+const SIDES_SET: u8 = 1 << 4;
+
 impl Style {
-    /// No colour and no emphasis.
+    /// No colour, no emphasis and no box.
     #[must_use]
     pub const fn new() -> Self {
         Self {
             fg: None,
             bg: None,
             attributes: 0,
+            frame: Frame {
+                padding: [0; 4],
+                margin: [0; 4],
+                border: None,
+                sides: 0,
+                border_fg: None,
+                width: 0,
+                height: 0,
+            },
         }
     }
 
@@ -136,8 +190,165 @@ impl Style {
         self
     }
 
-    /// `text` in this style, reset after it. A plain style returns the
-    /// text unchanged.
+    /// This style with the colours and emphasis of `other` that this one
+    /// does not set: Lip Gloss's `Inherit`. The box is not inherited.
+    #[must_use]
+    pub const fn inherit(mut self, other: Self) -> Self {
+        if self.fg.is_none() {
+            self.fg = other.fg;
+        }
+        if self.bg.is_none() {
+            self.bg = other.bg;
+        }
+        self.attributes |= other.attributes;
+        self
+    }
+
+    /// The same colours and emphasis, without padding, border, margins
+    /// or size.
+    #[must_use]
+    pub const fn plain(mut self) -> Self {
+        self.frame = Self::new().frame;
+        self
+    }
+
+    /// Padding: `vertical` blank lines above and below, `horizontal`
+    /// columns left and right, in the background colour. Lip Gloss's
+    /// `Padding(vertical, horizontal)`.
+    #[must_use]
+    pub const fn padding(mut self, vertical: u16, horizontal: u16) -> Self {
+        self.frame.padding = [vertical, horizontal, vertical, horizontal];
+        self
+    }
+
+    /// Padding on each side: top, right, bottom, left, as CSS orders them.
+    #[must_use]
+    pub const fn padding_sides(mut self, top: u16, right: u16, bottom: u16, left: u16) -> Self {
+        self.frame.padding = [top, right, bottom, left];
+        self
+    }
+
+    /// Padding on the left only changed.
+    #[must_use]
+    pub const fn padding_left(mut self, columns: u16) -> Self {
+        self.frame.padding[3] = columns;
+        self
+    }
+
+    /// Margins: blank space outside the border, `vertical` lines above
+    /// and below and `horizontal` columns left and right.
+    #[must_use]
+    pub const fn margin(mut self, vertical: u16, horizontal: u16) -> Self {
+        self.frame.margin = [vertical, horizontal, vertical, horizontal];
+        self
+    }
+
+    /// Margins on each side: top, right, bottom, left.
+    #[must_use]
+    pub const fn margin_sides(mut self, top: u16, right: u16, bottom: u16, left: u16) -> Self {
+        self.frame.margin = [top, right, bottom, left];
+        self
+    }
+
+    /// The top margin only changed.
+    #[must_use]
+    pub const fn margin_top(mut self, rows: u16) -> Self {
+        self.frame.margin[0] = rows;
+        self
+    }
+
+    /// The top margin's rows.
+    #[must_use]
+    pub fn get_margin_top(&self) -> usize {
+        usize::from(self.frame.margin[0])
+    }
+
+    /// A border on every side, unless [`Style::border_sides`] picks some.
+    #[must_use]
+    pub const fn border(mut self, border: Border) -> Self {
+        self.frame.border = Some(border);
+        self
+    }
+
+    /// Which sides have the border: top, right, bottom, left, as Lip
+    /// Gloss's `Border(border, top, right, bottom, left)` sets them.
+    #[must_use]
+    pub fn border_sides(mut self, [top, right, bottom, left]: [bool; 4]) -> Self {
+        let bit = |on: bool, n: u8| u8::from(on) << n;
+        self.frame.sides = SIDES_SET | bit(top, 0) | bit(right, 1) | bit(bottom, 2) | bit(left, 3);
+        self
+    }
+
+    /// The border's colour.
+    #[must_use]
+    pub const fn border_fg(mut self, color: Color) -> Self {
+        self.frame.border_fg = Some(color);
+        self
+    }
+
+    /// At least `columns` wide, border included; longer lines are
+    /// wrapped at the width less the padding, as Lip Gloss's `Width`.
+    /// 0 is no width.
+    #[must_use]
+    pub const fn width(mut self, columns: u16) -> Self {
+        self.frame.width = columns;
+        self
+    }
+
+    /// At least `rows` high, border included; blank lines are added
+    /// below. 0 is no height.
+    #[must_use]
+    pub const fn height(mut self, rows: u16) -> Self {
+        self.frame.height = rows;
+        self
+    }
+
+    /// The padding's columns on the left.
+    #[must_use]
+    pub fn get_padding_left(&self) -> usize {
+        usize::from(self.frame.padding[3])
+    }
+
+    /// The padding's columns on the right.
+    #[must_use]
+    pub fn get_padding_right(&self) -> usize {
+        usize::from(self.frame.padding[1])
+    }
+
+    /// The columns padding, border and margins take, left and right
+    /// together: Lip Gloss's `GetHorizontalFrameSize`.
+    #[must_use]
+    pub fn horizontal_frame(&self) -> usize {
+        let [_, right, _, left] = self.frame.padding;
+        let [_, m_right, _, m_left] = self.frame.margin;
+        let [_, b_right, _, b_left] = self.border_widths();
+        usize::from(right + left + m_right + m_left) + b_right + b_left
+    }
+
+    /// The columns left of the content and the rows above it that
+    /// margins, border and padding take: where a block's text starts.
+    #[must_use]
+    pub fn frame_offset(&self) -> (usize, usize) {
+        let [top, _, _, left] = self.frame.padding;
+        let [m_top, _, _, m_left] = self.frame.margin;
+        let [b_top, _, _, b_left] = self.border_widths();
+        (
+            usize::from(left + m_left) + b_left,
+            usize::from(top + m_top) + b_top,
+        )
+    }
+
+    /// The rows padding, border and margins take, above and below.
+    #[must_use]
+    pub fn vertical_frame(&self) -> usize {
+        let [top, _, bottom, _] = self.frame.padding;
+        let [m_top, _, m_bottom, _] = self.frame.margin;
+        let [b_top, _, b_bottom, _] = self.border_widths();
+        usize::from(top + bottom + m_top + m_bottom) + b_top + b_bottom
+    }
+
+    /// `text` in this style, reset after it, as one run: for text on one
+    /// line. A plain style returns the text unchanged.
     #[must_use]
     pub fn paint(&self, text: &str) -> String {
         let codes = self.codes();
@@ -241,66 +452,4 @@ fn keep(token: Token<'_>, room: &mut Option<usize>) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_plain_style_leaves_text_alone() {
-        assert_eq!(Style::new().paint("hi"), "hi");
-    }
-
-    #[test]
-    fn styles_become_sgr_codes() {
-        assert_eq!(
-            Style::new().bold().fg(Color::RED).paint("x"),
-            "\x1b[1;31mx\x1b[0m"
-        );
-        assert_eq!(
-            Style::new()
-                .fg(Color::Ansi(9))
-                .bg(Color::Ansi(12))
-                .paint("x"),
-            "\x1b[91;104mx\x1b[0m"
-        );
-        assert_eq!(
-            Style::new().fg(Color::Palette(208)).paint("x"),
-            "\x1b[38;5;208mx\x1b[0m"
-        );
-        assert_eq!(
-            Style::new().bg(Color::Rgb(1, 2, 3)).paint("x"),
-            "\x1b[48;2;1;2;3mx\x1b[0m"
-        );
-        assert_eq!(
-            Style::new().dim().italic().underline().reverse().paint("x"),
-            "\x1b[2;3;4;7mx\x1b[0m"
-        );
-    }
-
-    #[test]
-    fn width_ignores_escape_sequences() {
-        let s = Style::new().bold().fg(Color::GREEN).paint("héllo");
-        assert_eq!(width(&s), 5);
-        assert_eq!(strip_ansi(&s), "héllo");
-    }
-
-    #[test]
-    fn width_counts_wide_characters_twice() {
-        assert_eq!(width("字a"), 3);
-        assert_eq!(width("e\u{301}"), 1);
-        assert_eq!(
-            truncate("字字", 3),
-            "字\x1b[0m",
-            "a wide character is not split"
-        );
-        assert_eq!(width_method(), WidthMethod::WcWidth);
-    }
-
-    #[test]
-    fn truncation_keeps_styles_and_resets() {
-        assert_eq!(truncate("hello", 10), "hello");
-        assert_eq!(truncate("hello", 3), "hel\x1b[0m");
-        let styled = Style::new().bold().paint("hello");
-        assert_eq!(strip_ansi(&truncate(&styled, 2)), "he");
-        assert!(truncate(&styled, 2).ends_with("\x1b[0m"));
-    }
-}
+mod tests;
