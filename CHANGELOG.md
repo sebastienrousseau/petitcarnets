@@ -3,6 +3,8 @@
 All notable changes to this project are documented here. Every release is
 exactly 0.0.1 above the previous one.
 
+## [0.0.4] - Unreleased
+
 ## [0.0.3] - 2026-11-27
 
 Bubble Tea v2's renderer: a cell buffer diffed frame to frame, inline
