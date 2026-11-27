@@ -1,6 +1,6 @@
 //! What a model receives, and the values around it.
 
-use crate::color::Rgb;
+use crate::color::{ColorProfile, Rgb};
 use crate::key::Key;
 use crate::mode::{KeyboardEnhancementsReport, ModeSetting, ReportedMode};
 use crate::mouse::Mouse;
@@ -75,12 +75,101 @@ pub enum Msg<M> {
     BackgroundColor(Rgb),
     /// The terminal's cursor colour. Bubble Tea's `tea.CursorColorMsg`.
     CursorColor(Rgb),
-    /// The window's size: sent once at the start and after every resize.
-    /// Bubble Tea's `tea.WindowSizeMsg`.
+    /// The window's size: sent once at the start, after every resize,
+    /// after [`request_window_size`](crate::request_window_size), and when
+    /// the terminal reports it (`CSI 8 ; rows ; columns t`). Bubble Tea's
+    /// `tea.WindowSizeMsg`.
     WindowSize(Size),
+    /// The window's size in pixels, when the terminal reports it
+    /// (`CSI 4 ; height ; width t`). Ultraviolet's `PixelSizeEvent`,
+    /// which Bubble Tea passes on as it is.
+    PixelSize(Size),
+    /// The size of one cell in pixels, when the terminal reports it
+    /// (`CSI 6 ; height ; width t`). Ultraviolet's `CellSizeEvent`.
+    CellSize(Size),
+    /// The colour profile: sent once at the start, and again when the
+    /// terminal says it shows 24-bit colour (see [`Msg::Capability`]).
+    /// Bubble Tea's `tea.ColorProfileMsg`.
+    ColorProfile(ColorProfile),
+    /// The program was suspended and has resumed, or was stopped from
+    /// outside and continued; the terminal is set up and drawn again.
+    /// Bubble Tea's `tea.ResumeMsg`.
+    Resume,
+    /// The clipboard's content, after [`read_clipboard`](crate::read_clipboard)
+    /// or [`read_primary_clipboard`](crate::read_primary_clipboard).
+    /// Bubble Tea's `tea.ClipboardMsg`.
+    Clipboard {
+        /// The text.
+        content: String,
+        /// Which clipboard it came from.
+        selection: ClipboardSelection,
+    },
+    /// A terminal capability, after
+    /// [`request_capability`](crate::request_capability): `name=value`,
+    /// or the name alone for a flag. A reply of `RGB` or `Tc` also
+    /// upgrades the colour profile to 24-bit, unless
+    /// [`Program::with_color_profile`](crate::Program::with_color_profile)
+    /// set it. Bubble Tea's `tea.CapabilityMsg`.
+    Capability(String),
+    /// The terminal's primary device attributes (DA1, `CSI ? ... c`):
+    /// its class and features. Ultraviolet's
+    /// `PrimaryDeviceAttributesEvent`, which Bubble Tea passes on as it
+    /// is; ask with [`raw`](crate::raw)`("\x1b[c")`.
+    PrimaryDeviceAttributes(Vec<i64>),
+    /// The terminal's secondary device attributes (DA2, `CSI > ... c`):
+    /// its type, version and options. Ultraviolet's
+    /// `SecondaryDeviceAttributesEvent`.
+    SecondaryDeviceAttributes(Vec<i64>),
+    /// The terminal's unit id (DA3, `DCS ! | ... ST`). Ultraviolet's
+    /// `TertiaryDeviceAttributesEvent`.
+    TertiaryDeviceAttributes(String),
+    /// The terminal's colour scheme, dark or light (`CSI ? 997 ; n n`).
+    /// Ultraviolet's `DarkColorSchemeEvent` and `LightColorSchemeEvent`.
+    ColorScheme(ColorScheme),
     /// A message of the model's own, from a [`Cmd`](crate::Cmd) or a
     /// [`Sender`](crate::Sender).
     App(M),
+}
+
+/// Which clipboard a [`Msg::Clipboard`] came from: the OSC 52 selection
+/// byte, as Bubble Tea's `ClipboardSelection`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ClipboardSelection {
+    /// The system clipboard (`c`).
+    System,
+    /// The primary selection (`p`).
+    Primary,
+    /// Another selection byte, or 0 when the reply named none.
+    Other(u8),
+}
+
+impl From<u8> for ClipboardSelection {
+    fn from(byte: u8) -> Self {
+        match byte {
+            b'c' => Self::System,
+            b'p' => Self::Primary,
+            other => Self::Other(other),
+        }
+    }
+}
+
+impl From<ClipboardSelection> for u8 {
+    fn from(selection: ClipboardSelection) -> Self {
+        match selection {
+            ClipboardSelection::System => b'c',
+            ClipboardSelection::Primary => b'p',
+            ClipboardSelection::Other(byte) => byte,
+        }
+    }
+}
+
+/// A terminal's colour scheme.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ColorScheme {
+    /// Light text on a dark background.
+    Dark,
+    /// Dark text on a light background.
+    Light,
 }
 
 /// A terminal size in cells.

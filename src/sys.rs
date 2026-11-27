@@ -17,7 +17,7 @@
 
 use std::ffi::{c_int, c_short, c_ulong, c_ushort, c_void};
 use std::io;
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
 /// Room for any platform's `termios` (60 bytes on Linux, 72 on macOS).
@@ -26,6 +26,10 @@ const TERMIOS_WORDS: usize = 32;
 /// `TCSAFLUSH`: apply the change after output drains, discarding unread
 /// input (2 on Linux and macOS alike).
 const TCSAFLUSH: c_int = 2;
+
+/// `TCSANOW`: apply the change at once, keeping unread input (0 on
+/// Linux, macOS and FreeBSD alike).
+const TCSANOW: c_int = 0;
 
 /// Values that differ between the supported systems.
 #[cfg(target_os = "linux")]
@@ -52,8 +56,7 @@ mod os {
 compile_error!("petitcarnets supports Linux, macOS and FreeBSD for now");
 
 /// Signal numbers. `SIGINT`, `SIGTERM` and `SIGWINCH` are the same on
-/// Linux, macOS and FreeBSD; `SIGTSTP` and `SIGCONT` are not, and get a
-/// per-OS entry when suspend support needs them.
+/// Linux, macOS and FreeBSD; `SIGTSTP` and `SIGCONT` are not.
 pub(crate) mod signo {
     use std::ffi::c_int;
     /// Interrupt (Ctrl-C outside raw mode, or `kill -INT`).
@@ -62,10 +65,33 @@ pub(crate) mod signo {
     pub(crate) const SIGTERM: c_int = 15;
     /// The window changed size.
     pub(crate) const SIGWINCH: c_int = 28;
+    /// Stop from the terminal (Ctrl-Z outside raw mode, or `kill -TSTP`).
+    #[cfg(target_os = "linux")]
+    pub(crate) const SIGTSTP: c_int = 20;
+    /// Stop from the terminal (Ctrl-Z outside raw mode, or `kill -TSTP`).
+    #[cfg(any(target_os = "macos", target_os = "freebsd"))]
+    pub(crate) const SIGTSTP: c_int = 18;
+    /// Continue after a stop (`fg`, or `kill -CONT`).
+    #[cfg(target_os = "linux")]
+    pub(crate) const SIGCONT: c_int = 18;
+    /// Continue after a stop (`fg`, or `kill -CONT`).
+    #[cfg(any(target_os = "macos", target_os = "freebsd"))]
+    pub(crate) const SIGCONT: c_int = 19;
 }
 
 /// The signals a running program listens for.
-const WATCHED: [c_int; 3] = [signo::SIGINT, signo::SIGTERM, signo::SIGWINCH];
+const WATCHED: [c_int; 5] = [
+    signo::SIGINT,
+    signo::SIGTERM,
+    signo::SIGWINCH,
+    signo::SIGTSTP,
+    signo::SIGCONT,
+];
+
+/// How long [`stop_process_group`] waits for the stop to take hold: a
+/// process group the system will not stop (an orphaned one) carries on
+/// after this.
+const STOP_WAIT: Duration = Duration::from_millis(500);
 
 /// `fcntl` commands, the same on every supported system.
 const F_GETFL: c_int = 3;
@@ -129,6 +155,8 @@ unsafe extern "C" {
     fn fcntl(fd: c_int, cmd: c_int, ...) -> c_int;
     fn poll(fds: *mut PollFd, nfds: os::NFds, timeout: c_int) -> c_int;
     fn signal(signum: c_int, handler: Handler) -> isize;
+    // `pid_t` is a 32-bit `int` on Linux, macOS and FreeBSD.
+    fn kill(pid: c_int, signum: c_int) -> c_int;
 }
 
 /// Standard input's file descriptor.
@@ -155,11 +183,24 @@ pub(crate) fn get_mode(fd: c_int) -> io::Result<Termios> {
     Ok(t)
 }
 
-/// Sets the terminal's mode.
+/// Sets the terminal's mode once output drains, discarding unread
+/// input: for the start and the end of a run.
 pub(crate) fn set_mode(fd: c_int, termios: &Termios) -> io::Result<()> {
+    set_mode_when(fd, TCSAFLUSH, termios)
+}
+
+/// Sets the terminal's mode at once, keeping unread input: for handing
+/// the terminal to another program and taking it back, where every byte
+/// typed must reach one of them.
+pub(crate) fn set_mode_now(fd: c_int, termios: &Termios) -> io::Result<()> {
+    set_mode_when(fd, TCSANOW, termios)
+}
+
+/// `tcsetattr` with `action`.
+fn set_mode_when(fd: c_int, action: c_int, termios: &Termios) -> io::Result<()> {
     // SAFETY: the buffer was filled by `tcgetattr` (and perhaps edited by
     // `cfmakeraw`), so it holds a valid `termios`; it outlives the call.
-    check(unsafe { tcsetattr(fd, TCSAFLUSH, termios.0.as_ptr()) }).map(drop)
+    check(unsafe { tcsetattr(fd, action, termios.0.as_ptr()) }).map(drop)
 }
 
 /// `mode` changed to raw: no echo, no line buffering, no signal keys,
@@ -325,10 +366,19 @@ impl Drop for Pipe {
 /// Where the signal handler writes: a pipe's write end, or -1.
 static SIGNAL_FD: AtomicI32 = AtomicI32::new(-1);
 
+/// How many times the process has been continued (`SIGCONT`).
+static CONTINUED: AtomicU32 = AtomicU32::new(0);
+
 /// The signal handler: writes the signal's number, as one byte, to
-/// [`SIGNAL_FD`]. `write` is async-signal-safe, and the pipe never
-/// blocks; if it is full, the byte is dropped, which loses nothing a
-/// pending byte does not already say.
+/// [`SIGNAL_FD`], and counts `SIGCONT`. `write` and lock-free atomics
+/// are async-signal-safe, and the pipe never blocks; if it is full, the
+/// byte is dropped, which loses nothing a pending byte does not already
+/// say.
+///
+/// The byte goes first: once [`stop_process_group`] sees the count
+/// change, the `SIGCONT` byte is already in the pipe, ahead of anything
+/// written after, so a paused reader drops it rather than taking it for
+/// a stop from outside.
 extern "C" fn on_signal(signum: c_int) {
     let fd = SIGNAL_FD.load(Ordering::Relaxed);
     if fd >= 0 {
@@ -337,9 +387,13 @@ extern "C" fn on_signal(signum: c_int) {
         // stays open while it is in `SIGNAL_FD`.
         let _ = unsafe { write(fd, (&raw const byte).cast(), 1) };
     }
+    if signum == signo::SIGCONT {
+        let _ = CONTINUED.fetch_add(1, Ordering::SeqCst);
+    }
 }
 
-/// Sends `SIGINT`, `SIGTERM` and `SIGWINCH` to `fd`, one byte each.
+/// Sends `SIGINT`, `SIGTERM`, `SIGWINCH`, `SIGTSTP` and `SIGCONT` to
+/// `fd`, one byte each.
 pub(crate) fn watch_signals(fd: c_int) -> io::Result<()> {
     SIGNAL_FD.store(fd, Ordering::Relaxed);
     for signum in WATCHED {
@@ -362,48 +416,35 @@ pub(crate) fn unwatch_signals() {
     SIGNAL_FD.store(-1, Ordering::Relaxed);
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_bad_descriptor_is_not_a_terminal() {
-        assert!(!is_tty(-1));
-        assert!(get_mode(-1).is_err());
-        assert!(window_size(-1).is_err());
+/// Gives `SIGTSTP` its default handling (`default`), so a stop from the
+/// keyboard stops the process with whatever runs in the terminal, or
+/// sends it to the pipe again.
+pub(crate) fn default_stop(default: bool) -> io::Result<()> {
+    let handler: Handler = if default { None } else { Some(on_signal) };
+    // SAFETY: `on_signal` only does async-signal-safe work, and the
+    // default disposition is always valid.
+    let previous = unsafe { signal(signo::SIGTSTP, handler) };
+    if previous == SIG_ERR {
+        return Err(io::Error::last_os_error());
     }
-
-    #[test]
-    fn the_opaque_buffer_holds_any_termios() {
-        assert!(size_of::<Termios>() >= 72);
-        assert_eq!(align_of::<Termios>(), 8);
-    }
-
-    #[test]
-    fn a_pipe_carries_bytes_and_wakes_a_wait() {
-        let pipe = Pipe::new().unwrap();
-        write_all_fd(pipe.write, b"hi").unwrap();
-        assert_eq!(wait_readable([pipe.read], None).unwrap(), [true]);
-        let mut buf = [0u8; 8];
-        assert_eq!(read_fd(pipe.read, &mut buf).unwrap(), 2);
-        assert_eq!(&buf[..2], b"hi");
-    }
-
-    #[test]
-    fn a_wait_ends_at_its_timeout() {
-        let pipe = Pipe::new().unwrap();
-        let start = Instant::now();
-        let ready = wait_readable([pipe.read], Some(Duration::from_millis(20))).unwrap();
-        assert_eq!(ready, [false]);
-        assert!(start.elapsed() >= Duration::from_millis(20));
-    }
-
-    #[test]
-    fn the_write_end_never_blocks() {
-        let pipe = Pipe::new().unwrap();
-        let chunk = [0u8; 4096];
-        let full = (0..1024).find_map(|_| write_all_fd(pipe.write, &chunk).err());
-        let err = full.expect("a pipe fills up long before 4 MiB");
-        assert_eq!(err.kind(), io::ErrorKind::WouldBlock);
-    }
+    Ok(())
 }
+
+/// Stops the process and the rest of its process group, as a shell's
+/// Ctrl-Z does and as Bubble Tea does (`kill(0, SIGTSTP)`), and returns
+/// once it has been continued. `SIGTSTP` must have its default handling
+/// ([`default_stop`]), and `SIGCONT` must be watched.
+pub(crate) fn stop_process_group() -> io::Result<()> {
+    let before = CONTINUED.load(Ordering::SeqCst);
+    // SAFETY: `kill` takes a process group (0, the caller's) and a valid
+    // signal number; it touches no memory of ours.
+    check(unsafe { kill(0, signo::SIGTSTP) }).map(drop)?;
+    let deadline = Instant::now() + STOP_WAIT;
+    while CONTINUED.load(Ordering::SeqCst) == before && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests;

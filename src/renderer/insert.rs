@@ -4,6 +4,7 @@
 use super::cell::Cell;
 use super::layout::{Pens, line_cells};
 use super::writer::{Addressing, Writer};
+use crate::color::ColorProfile;
 use crate::unicode::WidthMethod;
 use std::cmp::Ordering;
 use std::fmt::Write as _;
@@ -11,10 +12,17 @@ use std::fmt::Write as _;
 /// The bytes that print `text`'s lines, each erased first and ended
 /// with `\r\n`, with autowrap on while they are written so long lines
 /// wrap; and how many rows they take on a screen `width` columns wide.
-/// Styles go through the same cells as frames, and end with each line.
-pub(crate) fn encode(text: &str, width: usize, method: WidthMethod) -> (String, usize) {
+/// Styles go through the same cells and colour profile as frames, and
+/// end with each line.
+pub(crate) fn encode(
+    text: &str,
+    width: usize,
+    method: WidthMethod,
+    profile: ColorProfile,
+) -> (String, usize) {
     let mut pens = Pens::default();
     let mut w = Writer::new(usize::MAX, 1, Addressing::Relative);
+    w.profile = profile;
     let mut rows = 0;
     w.raw("\x1b[?7h");
     for line in text.split('\n') {

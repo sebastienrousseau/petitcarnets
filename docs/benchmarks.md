@@ -103,7 +103,7 @@ Mean bytes per frame, first frame bytes in brackets.
   sets up keyboard enhancements and asks about them. petitcarnets turns
   off autowrap and sets up bracketed paste and keyboard enhancements; it
   does not ask about modes 2026 and 2027 here, because the bench's
-  backend keeps `Backend::query_output_modes` at its default (no); the
+  backend keeps `Backend::is_terminal` at its default (no); the
   real terminal backend asks.
 - **Synchronised output** (mode 2026) was off in every run, because no
   terminal answered the query. In a terminal that has it, each frame is

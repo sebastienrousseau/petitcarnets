@@ -47,8 +47,10 @@
 
 mod ansi;
 mod backend;
+mod base64;
 mod cmd;
 mod color;
+mod environ;
 mod exec;
 #[cfg(unix)]
 mod guard;
@@ -70,14 +72,21 @@ mod unicode;
 mod view;
 
 pub use backend::{Backend, Input, InputSink};
-pub use cmd::{Cmd, batch, clear_screen, every, interrupt, println, quit, raw, sequence, tick};
-pub use color::Rgb;
+pub use cmd::{
+    Cmd, ExecCommand, batch, clear_screen, every, exec, exec_command, interrupt, println, quit,
+    raw, read_clipboard, read_primary_clipboard, release_terminal, repaint,
+    request_background_color, request_capability, request_cursor_color, request_cursor_position,
+    request_foreground_color, request_terminal_version, request_window_size, restore_terminal,
+    sequence, set_clipboard, set_primary_clipboard, suspend, tick,
+};
+pub use color::{ColorProfile, Rgb};
+pub use environ::Environment;
 pub use key::{Key, KeyCode, KeyMod};
 pub use mode::{
     KeyboardEnhancements, KeyboardEnhancementsReport, ModeSetting, ReportedMode, TerminalMode,
 };
 pub use mouse::{Mouse, MouseButton, MouseMode};
-pub use msg::{Error, Msg, Size};
+pub use msg::{ClipboardSelection, ColorScheme, Error, Msg, Size};
 pub use program::{Program, Sender};
 #[cfg(unix)]
 pub use terminal::Terminal;

@@ -81,6 +81,7 @@ fn saved() -> MutexGuard<'static, Option<Saved>> {
 /// the terminal.
 #[derive(Debug)]
 pub(crate) struct TerminalGuard {
+    input: c_int,
     output: c_int,
 }
 
@@ -96,7 +97,7 @@ impl TerminalGuard {
             active: Active::default(),
         });
         install_panic_hook();
-        let guard = Self { output };
+        let guard = Self { input, output };
         sys::set_mode(input, &sys::make_raw(&mode))?;
         Ok(guard)
     }
@@ -120,6 +121,26 @@ impl TerminalGuard {
     /// keyboard flags.
     pub(crate) fn write(&self, bytes: &[u8]) -> io::Result<()> {
         sys::write_all_fd(self.output, bytes)
+    }
+
+    /// Puts the saved mode back for another program, at once and keeping
+    /// unread input, which is that program's to read. The modes on stay
+    /// recorded.
+    pub(crate) fn cook(&self) -> io::Result<()> {
+        self.set(|mode| *mode)
+    }
+
+    /// Raw mode again, at once and keeping unread input, after
+    /// [`TerminalGuard::cook`].
+    pub(crate) fn raw(&self) -> io::Result<()> {
+        self.set(sys::make_raw)
+    }
+
+    /// Sets the input's mode to `make(saved mode)` at once, if the guard
+    /// is live.
+    fn set(&self, make: fn(&Termios) -> Termios) -> io::Result<()> {
+        let mode = saved().as_ref().map(|s| make(&s.mode));
+        mode.map_or(Ok(()), |mode| sys::set_mode_now(self.input, &mode))
     }
 
     /// Restores the terminal now and reports whether that worked.

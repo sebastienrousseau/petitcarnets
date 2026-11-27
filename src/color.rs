@@ -1,4 +1,10 @@
-//! Colours a terminal reports, such as its background.
+//! Colours: those a terminal reports, such as its background, and the
+//! colour profile every colour written is brought down to.
+
+mod convert;
+mod profile;
+
+pub use profile::ColorProfile;
 
 /// A 24-bit colour.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -100,3 +106,6 @@ fn narrow(v: u64) -> u8 {
     let v = if v > 0xFF { v >> 8 } else { v };
     v.to_le_bytes()[0]
 }
+
+#[cfg(test)]
+mod tests;

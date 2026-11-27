@@ -6,7 +6,7 @@ use crate::input::{ESC_TIMEOUT, Event, Reader};
 use crate::key::Key;
 use crate::mode::{KeyboardEnhancementsReport, ModeSetting, ReportedMode, TerminalMode};
 use crate::mouse::Mouse;
-use crate::msg::Size;
+use crate::msg::{ClipboardSelection, ColorScheme, Size};
 use std::io::{self, Write};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
@@ -63,12 +63,40 @@ pub enum Input {
     BackgroundColor(Rgb),
     /// The terminal's cursor colour.
     CursorColor(Rgb),
-    /// The window changed to this size.
+    /// The window changed to this size, or the terminal reported it.
     Resize(Size),
+    /// The window's size in pixels.
+    PixelSize(Size),
+    /// The size of one cell in pixels.
+    CellSize(Size),
+    /// The clipboard's content (OSC 52).
+    Clipboard {
+        /// The text.
+        content: String,
+        /// Which clipboard.
+        selection: ClipboardSelection,
+    },
+    /// A capability, as `name=value` or a name alone (XTGETTCAP).
+    Capability(String),
+    /// The terminal's primary device attributes (DA1).
+    PrimaryDeviceAttributes(Vec<i64>),
+    /// The terminal's secondary device attributes (DA2).
+    SecondaryDeviceAttributes(Vec<i64>),
+    /// The terminal's unit id (DA3).
+    TertiaryDeviceAttributes(String),
+    /// The terminal's colour scheme.
+    ColorScheme(ColorScheme),
     /// `SIGINT`: stop with [`Error::Interrupted`](crate::Error::Interrupted).
     Interrupt,
     /// `SIGTERM`: stop as if the model had quit.
     Terminate,
+    /// `SIGTSTP` (`kill -TSTP`, or Ctrl-Z while another program has the
+    /// terminal): suspend the program, as [`suspend`](crate::suspend)
+    /// does.
+    Suspend,
+    /// `SIGCONT` without a suspend of the program's own: it was stopped
+    /// from outside, so the terminal is set up and drawn again.
+    Continue,
 }
 
 /// Delivers input to the running program; `false` once it has stopped.
@@ -117,14 +145,54 @@ pub trait Backend {
         self.output().write_all(&mode.sequence(on))
     }
 
-    /// Whether the program should ask the terminal, when it starts,
-    /// whether it has synchronized output (mode 2026) and grapheme
-    /// widths (mode 2027). The replies arrive as
-    /// [`Input::ModeReport`]; nothing waits for them. No by default; the
-    /// real terminal asks unless Bubble Tea would not (over SSH, or in
-    /// Apple's Terminal).
-    fn query_output_modes(&self) -> bool {
+    /// Whether this is a real terminal. A program then asks it, when it
+    /// starts, whether it has synchronized output (mode 2026) and
+    /// grapheme widths (mode 2027), unless Bubble Tea would not (over
+    /// SSH, or in Apple's Terminal); detects its colour profile from the
+    /// environment; and before handing it back, reads the replies to
+    /// queries still on their way. No by default: a backend that is not
+    /// a terminal shows every colour as it is, unless
+    /// [`Program::with_color_profile`](crate::Program::with_color_profile)
+    /// says otherwise.
+    fn is_terminal(&self) -> bool {
         false
+    }
+
+    /// Hands the terminal to another program, for
+    /// [`exec`](crate::exec), [`suspend`](crate::suspend) and
+    /// [`release_terminal`](crate::release_terminal): stops reading
+    /// input (bytes not yet read stay for that program), shows the
+    /// cursor and puts the terminal's own mode back. The runtime has
+    /// already turned its modes off. Nothing to do by default.
+    ///
+    /// # Errors
+    ///
+    /// If the terminal cannot be handed over.
+    fn release(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+
+    /// Takes the terminal back after [`Backend::release`]: raw mode and
+    /// the hidden cursor again, and input read again. The runtime then
+    /// turns its modes on again and draws the whole frame. Nothing to do
+    /// by default.
+    ///
+    /// # Errors
+    ///
+    /// If the terminal cannot be set up again.
+    fn restore(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+
+    /// Stops the process, as Ctrl-Z in a shell does, and returns once it
+    /// is continued; called between [`Backend::release`] and
+    /// [`Backend::restore`]. Nothing to do by default.
+    ///
+    /// # Errors
+    ///
+    /// If the process cannot be stopped.
+    fn suspend(&mut self) -> io::Result<()> {
+        Ok(())
     }
 }
 
@@ -151,6 +219,7 @@ pub struct TestBackend {
     steps: Vec<Step>,
     gap: Duration,
     screen: Screen,
+    terminal: bool,
 }
 
 /// One scripted step.
@@ -201,7 +270,18 @@ impl TestBackend {
             steps: Vec::new(),
             gap: Duration::from_millis(5),
             screen: Screen::default(),
+            terminal: false,
         }
+    }
+
+    /// Acts as a real terminal ([`Backend::is_terminal`]): the program
+    /// asks it about its output modes, detects the colour profile from
+    /// its environment, and waits a little for replies to queries before
+    /// it ends. A scripted terminal answers only what its input says.
+    #[must_use]
+    pub const fn terminal(mut self) -> Self {
+        self.terminal = true;
+        self
     }
 
     /// Adds key presses, in order.
@@ -288,5 +368,9 @@ impl Backend for TestBackend {
 
     fn output(&mut self) -> &mut dyn Write {
         &mut self.screen
+    }
+
+    fn is_terminal(&self) -> bool {
+        self.terminal
     }
 }

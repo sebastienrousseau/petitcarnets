@@ -197,6 +197,12 @@ func unknown() []chunks {
 	var c []chunks
 	for _, s := range []string{
 		"\x1b[99X", "\x1b[>0q", "\x1b]99;foo\x07", "\x1b]52;c;aGVsbG8=\x07", "\x1b]52;c;!!\x07",
+		"\x1b]52;p;d29ybGQ=\x1b\\", "\x1b]52;c\x07", "\x1b]52;;aGk=\x07", "\x1b]52;c;aGk\x07",
+		"\x1b]52;c;\x07", "\x1b]52;s;YQ==\x07", "\x1bP1+r524742\x1b\\",
+		"\x1bP1+r5463;524742=382f382f38\x1b\\", "\x1bP1+r7a7a3d\x1b\\", "\x1bP1+r\x1b\\",
+		"\x1b[?62;22;52c", "\x1b[?c", "\x1b[?1:2;3c", "\x1b[>41;354;0c", "\x1bP!|\x1b\\",
+		"\x1b[8;0;80t", "\x1b[8;5000;80t", "\x1b[8;70000;80t", "\x1b[4;70000;10t",
+		"\x1b[48;0;0;0;0t", "\x1b[6;0;0t",
 		"\x1bPqfoo\x1b\\", "\x1bP1+r544e=787465726d\x1b\\", "\x1bP0+r\x1b\\",
 		"\x1b_Gi=1;OK\x1b\\", "\x1b_foo\x1b\\", "\x1b^foo\x1b\\", "\x1bXfoo\x1b\\",
 		"\x1b]0;x\x18", "\x1b]0;x\x1a", "\x1b_x\x18", "\x1b[8;24;80t", "\x1b[4;600;800t",

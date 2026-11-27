@@ -1,9 +1,13 @@
 //! The loop itself: updates, frames, output in program order, and
 //! waiting.
 
+mod handover;
+mod translate;
+
 use super::End;
-use crate::backend::{Backend, Input};
-use crate::cmd::Output;
+use crate::backend::Backend;
+use crate::cmd::{Handover, Output};
+use crate::color::ColorProfile;
 use crate::exec::{Event, Executor, Item};
 use crate::mode::{ModeSetting, Modes, ReportedMode};
 use crate::msg::{Error, Msg};
@@ -18,59 +22,78 @@ use std::time::{Duration, Instant};
 /// grapheme widths (mode 2027), as Bubble Tea does at the start.
 const QUERY: &[u8] = b"\x1b[?2026$p\x1b[?2027$p";
 
-/// Replies to the start query this young are waited for at the end, so
-/// they do not reach the shell; as Bubble Tea's `queryReplyWindow`.
-const REPLY_WINDOW: Duration = Duration::from_secs(1);
-
-/// The longest wait for those replies; Bubble Tea's `queryDrainTimeout`.
-const DRAIN_TIMEOUT: Duration = Duration::from_millis(500);
+/// How the loop is set up.
+pub(super) struct Settings {
+    /// The shortest time between frames.
+    pub(super) interval: Duration,
+    /// The colour profile.
+    pub(super) profile: ColorProfile,
+    /// Whether the profile was set by the program, so it is kept.
+    pub(super) forced: bool,
+    /// Whether Ctrl-Z suspends.
+    pub(super) suspend_key: bool,
+    /// Whether the backend is a real terminal.
+    pub(super) terminal: bool,
+}
 
 /// The loop's state besides the model.
 pub(super) struct Loop<'m, M> {
     pub(super) exec: Executor<M>,
     renderer: Renderer,
     modes: &'m mut Modes,
+    settings: Settings,
     dirty: bool,
     urgent: bool,
-    interval: Duration,
     last_frame: Option<Instant>,
     frame_due: Option<Instant>,
+    /// When a query was last written; its reply may be on its way.
     queried: Option<Instant>,
-    replies: u8,
+    /// Whether the terminal is handed over until a restore.
+    released: bool,
+    /// Output that waits while the terminal is handed over.
+    held_back: Vec<Output>,
 }
 
 impl<'m, A: Send + 'static> Loop<'m, A> {
-    /// A loop drawing at most one frame every `interval`.
+    /// A loop set up as `settings` say.
     pub(super) fn new(
         exec: Executor<A>,
-        renderer: Renderer,
+        mut renderer: Renderer,
         modes: &'m mut Modes,
-        interval: Duration,
+        settings: Settings,
     ) -> Self {
+        renderer.set_color_profile(settings.profile);
+        modes.set_color_profile(settings.profile);
         Self {
             exec,
             renderer,
             modes,
+            settings,
             dirty: true,
             urgent: false,
-            interval,
             last_frame: None,
             frame_due: None,
             queried: None,
-            replies: 0,
+            released: false,
+            held_back: Vec::new(),
         }
     }
 
-    /// Asks the terminal about its output modes, if the backend says to.
-    /// The replies arrive as input; nothing waits for them.
-    pub(super) fn query(&mut self, backend: &mut impl Backend) -> Result<(), Error> {
-        if backend.query_output_modes() {
-            let out = backend.output();
-            out.write_all(QUERY)?;
-            out.flush()?;
-            self.queried = Some(Instant::now());
-            self.replies = 2;
+    /// Asks the terminal about its output modes, if it is one and `ask`
+    /// says to. The replies arrive as input; nothing waits for them.
+    pub(super) fn query(&mut self, backend: &mut impl Backend, ask: bool) -> Result<(), Error> {
+        if self.settings.terminal && ask {
+            self.write_query(QUERY, backend)?;
         }
+        Ok(())
+    }
+
+    /// Writes a query and remembers when.
+    fn write_query(&mut self, bytes: &[u8], backend: &mut impl Backend) -> Result<(), Error> {
+        let out = backend.output();
+        out.write_all(bytes)?;
+        out.flush()?;
+        self.queried = Some(Instant::now());
         Ok(())
     }
 
@@ -82,7 +105,7 @@ impl<'m, A: Send + 'static> Loop<'m, A> {
         backend: &mut impl Backend,
     ) -> Result<End, Error> {
         loop {
-            if let Some(end) = self.update(model, backend)? {
+            if let Some(end) = self.update(model, inbox, backend)? {
                 return self.end(end, model, inbox, backend);
             }
             self.frame(model, backend)?;
@@ -99,47 +122,52 @@ impl<'m, A: Send + 'static> Loop<'m, A> {
         inbox: &Receiver<Event<A>>,
         backend: &mut impl Backend,
     ) -> Result<End, Error> {
+        if self.released {
+            self.take_back(backend)?;
+        }
         if matches!(end, End::Quit | End::Interrupt) {
             self.draw(&model.view(), backend)?;
-            self.drain(inbox);
+            self.drain(inbox, backend, false)?;
             self.renderer.finish(backend.output())?;
         } else {
+            self.drain(inbox, backend, false)?;
             self.renderer.abandon(backend.output())?;
         }
         Ok(end)
     }
 
     /// Updates the model with everything ready, in order, and applies
-    /// output in the same order; how the program ends, if it does.
+    /// output and hand-overs in the same order; how the program ends,
+    /// if it does.
     fn update<M: Model<Msg = A>>(
         &mut self,
         model: &mut M,
+        inbox: &Receiver<Event<A>>,
         backend: &mut impl Backend,
     ) -> Result<Option<End>, Error> {
         while let Some(item) = self.exec.pop() {
             match item {
                 Item::Msg(msg) => self.message(model, msg, backend)?,
                 Item::Output(output) => self.output(model, output, backend)?,
-                Item::Quit => return Ok(Some(End::Quit)),
-                Item::Interrupt => return Ok(Some(End::Interrupt)),
-                Item::Kill => return Ok(Some(End::Kill)),
-                Item::Panic(message) => return Ok(Some(End::Panic(message))),
+                Item::Handover(handover) => self.lifecycle(handover, model, inbox, backend)?,
+                end => return Ok(End::of(end)),
             }
         }
         Ok(None)
     }
 
-    /// One message for the model; the renderer hears sizes and mode
-    /// reports first.
+    /// One message for the model; the renderer hears sizes, mode
+    /// reports and capabilities first.
     fn message<M: Model<Msg = A>>(
         &mut self,
         model: &mut M,
         msg: Msg<A>,
         backend: &mut impl Backend,
     ) -> Result<(), Error> {
-        match msg {
-            Msg::WindowSize(size) => self.renderer.resize(size),
-            Msg::ModeReport { mode, value } => self.capability(mode, value, backend)?,
+        match &msg {
+            Msg::WindowSize(size) => self.renderer.resize(*size),
+            Msg::ModeReport { mode, value } => self.mode_report(*mode, *value, backend)?,
+            Msg::Capability(capability) => self.capability(capability),
             _ => {}
         }
         let cmd: Cmd<A> = model.update(msg);
@@ -149,19 +177,15 @@ impl<'m, A: Send + 'static> Loop<'m, A> {
     }
 
     /// Acts on a reply to the start query, as Bubble Tea does.
-    fn capability(
+    fn mode_report(
         &mut self,
         mode: ReportedMode,
         value: ModeSetting,
         backend: &mut impl Backend,
     ) -> Result<(), Error> {
         match mode {
-            ReportedMode::Dec(2026) => {
-                self.replies = self.replies.saturating_sub(1);
-                self.renderer.set_sync(value == ModeSetting::Reset);
-            }
+            ReportedMode::Dec(2026) => self.renderer.set_sync(value == ModeSetting::Reset),
             ReportedMode::Dec(2027) => {
-                self.replies = self.replies.saturating_sub(1);
                 let set = [
                     ModeSetting::Reset,
                     ModeSetting::Set,
@@ -178,26 +202,61 @@ impl<'m, A: Send + 'static> Loop<'m, A> {
         Ok(())
     }
 
-    /// Output from a command, applied now, between frames.
+    /// A terminal that says it has `RGB` or `Tc` shows 24-bit colour, as
+    /// Bubble Tea decides; unlike Bubble Tea (its issue #1773), a profile
+    /// the program set is kept.
+    fn capability(&mut self, capability: &str) {
+        let name = capability.split('=').next().unwrap_or_default();
+        let upgrade = matches!(name, "RGB" | "Tc")
+            && !self.settings.forced
+            && self.settings.profile != ColorProfile::TrueColor;
+        if upgrade {
+            self.settings.profile = ColorProfile::TrueColor;
+            self.renderer.set_color_profile(ColorProfile::TrueColor);
+            self.modes.set_color_profile(ColorProfile::TrueColor);
+            let msg = Msg::ColorProfile(ColorProfile::TrueColor);
+            self.exec.push(Item::Msg(msg));
+        }
+    }
+
+    /// Output from a command, applied now, between frames; it waits
+    /// while the terminal is handed over.
     fn output<M: Model<Msg = A>>(
         &mut self,
         model: &M,
         output: Output,
         backend: &mut impl Backend,
     ) -> Result<(), Error> {
+        if self.released {
+            self.held_back.push(output);
+            return Ok(());
+        }
         match output {
-            Output::Raw(bytes) => {
-                let out = backend.output();
-                out.write_all(&bytes)?;
-                out.flush()?;
-            }
+            Output::Raw(bytes) | Output::Query(bytes) => self.write_query(&bytes, backend),
+            Output::Print(text) => self.print(model, &text, backend),
+            other => self.redraw(&other, backend),
+        }
+    }
+
+    /// Clears the screen or repaints, with the modes written again; or
+    /// reads the window's size for the model.
+    fn redraw(&mut self, output: &Output, backend: &mut impl Backend) -> Result<(), Error> {
+        match output {
             Output::ClearScreen => {
                 self.renderer.clear_screen();
                 self.modes.reassert(backend)?;
-                self.dirty = true;
             }
-            Output::Print(text) => self.print(model, &text, backend)?,
+            Output::Repaint => {
+                self.modes.release(backend)?;
+                self.modes.resume(backend)?;
+                self.renderer.repaint();
+            }
+            _ => {
+                let size = backend.size()?;
+                self.exec.push_front(Item::Msg(Msg::WindowSize(size)));
+            }
         }
+        self.dirty = true;
         Ok(())
     }
 
@@ -219,17 +278,18 @@ impl<'m, A: Send + 'static> Loop<'m, A> {
 
     /// Draws if something changed and the frame rate allows: at once
     /// after input, else no sooner than one interval after the last.
+    /// Nothing is drawn while the terminal is handed over.
     fn frame<M: Model<Msg = A>>(
         &mut self,
         model: &M,
         backend: &mut impl Backend,
     ) -> Result<(), Error> {
-        if !self.dirty {
+        if !self.dirty || self.released {
             return Ok(());
         }
         if !self.urgent {
             if let Some(last) = self.last_frame {
-                let due = last + self.interval;
+                let due = last + self.settings.interval;
                 if Instant::now() < due {
                     self.frame_due = Some(due);
                     return Ok(());
@@ -276,34 +336,18 @@ impl<'m, A: Send + 'static> Loop<'m, A> {
         self.exec.fire_due(Instant::now());
     }
 
-    /// Waits a little for replies to the start query that have not come
-    /// yet, so the terminal does not type them into the shell.
-    fn drain(&mut self, inbox: &Receiver<Event<A>>) {
-        let Some(asked) = self.queried else { return };
-        if self.replies == 0 || asked.elapsed() > REPLY_WINDOW {
-            return;
-        }
-        let until = Instant::now() + DRAIN_TIMEOUT;
-        while self.replies > 0 {
-            let left = until.saturating_duration_since(Instant::now());
-            match inbox.recv_timeout(left) {
-                Ok(Event::Input(Input::ModeReport {
-                    mode: ReportedMode::Dec(2026 | 2027),
-                    ..
-                })) => self.replies -= 1,
-                Ok(_) => {}
-                Err(_) => return,
-            }
-        }
-    }
-
     /// Queues what one event means for the model. Keys, mouse events and
-    /// pastes make the next frame go out at once.
+    /// pastes make the next frame go out at once; Ctrl-Z suspends unless
+    /// the program says not to.
     fn take(&mut self, event: Event<A>) {
         let item = match event {
             Event::Input(input) => {
-                self.urgent |= is_urgent(&input);
-                input_item(input)
+                self.urgent |= translate::is_urgent(&input);
+                if self.settings.suspend_key && translate::is_suspend_key(&input) {
+                    Item::Handover(Handover::Suspend)
+                } else {
+                    translate::input_item(input)
+                }
             }
             Event::Done(parent, msg) => return self.exec.task_done(parent, msg, Instant::now()),
             Event::Panic(message) => Item::Panic(message),
@@ -313,63 +357,4 @@ impl<'m, A: Send + 'static> Loop<'m, A> {
         };
         self.exec.push(item);
     }
-}
-
-/// Whether input comes from the user, whose frame should not wait.
-const fn is_urgent(input: &Input) -> bool {
-    matches!(
-        input,
-        Input::KeyPress(_)
-            | Input::KeyRelease(_)
-            | Input::MouseClick(_)
-            | Input::MouseRelease(_)
-            | Input::MouseWheel(_)
-            | Input::MouseMotion(_)
-            | Input::Paste(_)
-    )
-}
-
-/// What a piece of terminal input means for the model: keys, mouse and
-/// paste here, the rest below.
-fn input_item<M>(input: Input) -> Item<M> {
-    let msg = match input {
-        Input::KeyPress(key) => Msg::KeyPress(key),
-        Input::KeyRelease(key) => Msg::KeyRelease(key),
-        Input::MouseClick(mouse) => Msg::MouseClick(mouse),
-        Input::MouseRelease(mouse) => Msg::MouseRelease(mouse),
-        Input::MouseWheel(mouse) => Msg::MouseWheel(mouse),
-        Input::MouseMotion(mouse) => Msg::MouseMotion(mouse),
-        Input::Paste(text) => Msg::Paste(text),
-        input => return focus_or_reply_item(input),
-    };
-    Item::Msg(msg)
-}
-
-/// Paste marks, focus, and the terminal's replies.
-fn focus_or_reply_item<M>(input: Input) -> Item<M> {
-    let msg = match input {
-        Input::PasteStart => Msg::PasteStart,
-        Input::PasteEnd => Msg::PasteEnd,
-        Input::Focus => Msg::Focus,
-        Input::Blur => Msg::Blur,
-        Input::CursorPosition { x, y } => Msg::CursorPosition { x, y },
-        Input::KeyboardEnhancements(report) => Msg::KeyboardEnhancements(report),
-        Input::ModeReport { mode, value } => Msg::ModeReport { mode, value },
-        input => return window_item(input),
-    };
-    Item::Msg(msg)
-}
-
-/// The terminal's name and colours, resizes, and signals.
-fn window_item<M>(input: Input) -> Item<M> {
-    Item::Msg(match input {
-        Input::TerminalVersion(name) => Msg::TerminalVersion(name),
-        Input::ForegroundColor(c) => Msg::ForegroundColor(c),
-        Input::BackgroundColor(c) => Msg::BackgroundColor(c),
-        Input::CursorColor(c) => Msg::CursorColor(c),
-        Input::Resize(size) => Msg::WindowSize(size),
-        Input::Interrupt => return Item::Interrupt,
-        Input::Terminate => return Item::Quit,
-        input => return input_item(input),
-    })
 }

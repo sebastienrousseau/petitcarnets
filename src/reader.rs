@@ -1,48 +1,119 @@
 //! The input thread: waits in `poll` on the terminal and on a wake pipe,
 //! and turns bytes and signals into [`Input`].
 //!
-//! The pipe carries one byte per signal (its number) and a zero byte to
-//! stop. Waiting in `poll` rather than in `read` means stopping never
-//! swallows a key meant for whatever runs next, and an idle program
-//! sleeps with no timer at all: the only timeout is the 50 ms escape
-//! timeout, while a lone ESC or a cut off sequence waits for its end.
+//! The pipe carries one byte per signal (its number), a zero byte to
+//! stop, and the pause and resume bytes. Waiting in `poll` rather than in
+//! `read` means stopping or pausing never swallows a key meant for
+//! whatever runs next, and an idle program sleeps with no timer at all:
+//! the only timeout is the 50 ms escape timeout, while a lone ESC or a
+//! cut off sequence waits for its end.
+//!
+//! Paused, the thread acknowledges, then waits on the pipe alone, so the
+//! terminal's bytes stay for the program it was handed to; signals that
+//! arrive meanwhile are dropped, as Bubble Tea ignores them while it has
+//! released the terminal.
 
 use crate::backend::{Input, InputSink};
 use crate::input::{Reader, inputs};
 use crate::sys::{self, signo};
 use crate::terminal::size_of;
 use std::ffi::c_int;
+use std::sync::mpsc::Sender;
 use std::thread::JoinHandle;
 use std::time::Instant;
 
 /// The byte that tells the reader to stop.
 pub(crate) const STOP: u8 = 0;
 
+/// The byte that tells the reader to stop reading the terminal until
+/// [`RESUME`]; it answers on its acknowledgement channel once it has.
+pub(crate) const PAUSE: u8 = 0xF0;
+
+/// The byte that tells a paused reader to read the terminal again.
+pub(crate) const RESUME: u8 = 0xF1;
+
+/// What the reader does after a wait.
+enum Next {
+    /// Read on.
+    Go,
+    /// Pause; the bytes after the pause byte, read with it.
+    Pause(Vec<u8>),
+    /// Stop.
+    Stop,
+}
+
 /// Starts reading `input`, and signals from `wake`, into `sink`; the
-/// window size comes from `output`.
-pub(crate) fn spawn(input: c_int, wake: c_int, output: c_int, sink: InputSink) -> JoinHandle<()> {
+/// window size comes from `output`. Each pause is acknowledged on `ack`.
+pub(crate) fn spawn(
+    input: c_int,
+    wake: c_int,
+    output: c_int,
+    sink: InputSink,
+    ack: Sender<()>,
+) -> JoinHandle<()> {
     std::thread::spawn(move || {
         let mut reader = Reader::default();
         loop {
-            let timeout = reader
-                .deadline()
-                .map(|at| at.saturating_duration_since(Instant::now()));
-            let Ok([keys, signals]) = sys::wait_readable([input, wake], timeout) else {
-                return;
-            };
-            if signals && !on_signals(wake, output, &sink) {
-                return;
-            }
-            let delivered = if keys {
-                on_keys(input, &mut reader, &sink)
-            } else {
-                deliver_all(reader.expire(Instant::now()), &sink)
-            };
-            if !delivered {
-                return;
+            match step(input, wake, output, &sink, &mut reader) {
+                Next::Go => {}
+                Next::Stop => return,
+                Next::Pause(rest) => {
+                    if !deliver_all(reader.flush(Instant::now()), &sink) {
+                        return;
+                    }
+                    let _ = ack.send(());
+                    if !paused(wake, &rest) {
+                        return;
+                    }
+                }
             }
         }
     })
+}
+
+/// Waits for the terminal or the pipe and handles what is ready.
+fn step(input: c_int, wake: c_int, output: c_int, sink: &InputSink, reader: &mut Reader) -> Next {
+    let timeout = reader
+        .deadline()
+        .map(|at| at.saturating_duration_since(Instant::now()));
+    let Ok([keys, signals]) = sys::wait_readable([input, wake], timeout) else {
+        return Next::Stop;
+    };
+    if signals {
+        match on_signals(wake, output, sink) {
+            Next::Go => {}
+            other => return other,
+        }
+    }
+    let delivered = if keys {
+        on_keys(input, reader, sink)
+    } else {
+        deliver_all(reader.expire(Instant::now()), sink)
+    };
+    if delivered { Next::Go } else { Next::Stop }
+}
+
+/// Waits on the pipe alone, dropping signals, until a resume (`true`)
+/// or a stop (`false`); `first` holds bytes already read.
+fn paused(wake: c_int, first: &[u8]) -> bool {
+    let mut buf = [0u8; 64];
+    let mut bytes = first.to_vec();
+    loop {
+        for byte in bytes.drain(..) {
+            match byte {
+                RESUME => return true,
+                STOP => return false,
+                _ => {}
+            }
+        }
+        if sys::wait_readable([wake], None).is_err() {
+            return false;
+        }
+        match sys::read_fd(wake, &mut buf) {
+            Ok(0) | Err(_) => return false,
+            Ok(n) => bytes.extend_from_slice(&buf[..n]),
+        }
+    }
 }
 
 /// Delivers decoded input; `false` once the program has stopped.
@@ -50,22 +121,32 @@ fn deliver_all(events: Vec<crate::input::Event>, sink: &InputSink) -> bool {
     inputs(events).all(sink)
 }
 
-/// Delivers the signals waiting in the pipe; `false` to stop.
-fn on_signals(wake: c_int, output: c_int, sink: &InputSink) -> bool {
+/// Delivers the signals waiting in the pipe, up to a pause or a stop.
+fn on_signals(wake: c_int, output: c_int, sink: &InputSink) -> Next {
     let mut buf = [0u8; 64];
-    match sys::read_fd(wake, &mut buf) {
-        Ok(0) | Err(_) => false,
-        Ok(n) => buf[..n].iter().all(|&b| deliver(b, output, sink)),
+    let n = match sys::read_fd(wake, &mut buf) {
+        Ok(0) | Err(_) => return Next::Stop,
+        Ok(n) => n,
+    };
+    for (i, &byte) in buf[..n].iter().enumerate() {
+        match byte {
+            PAUSE => return Next::Pause(buf[i + 1..n].to_vec()),
+            STOP => return Next::Stop,
+            _ if !deliver(byte, output, sink) => return Next::Stop,
+            _ => {}
+        }
     }
+    Next::Go
 }
 
-/// One byte from the pipe; `false` to stop.
+/// One signal from the pipe; `false` once the program has stopped.
 fn deliver(byte: u8, output: c_int, sink: &InputSink) -> bool {
     match c_int::from(byte) {
-        0 => false,
         signo::SIGWINCH => sink(Input::Resize(size_of(output))),
         signo::SIGINT => sink(Input::Interrupt),
         signo::SIGTERM => sink(Input::Terminate),
+        signo::SIGTSTP => sink(Input::Suspend),
+        signo::SIGCONT => sink(Input::Continue),
         _ => true,
     }
 }
@@ -83,56 +164,4 @@ fn on_keys(input: c_int, reader: &mut Reader, sink: &InputSink) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::key::{Key, KeyCode};
-    use std::sync::mpsc;
-
-    fn collect() -> (InputSink, mpsc::Receiver<Input>) {
-        let (tx, rx) = mpsc::channel();
-        (Box::new(move |i| tx.send(i).is_ok()), rx)
-    }
-
-    #[test]
-    fn keys_and_signals_arrive_and_a_zero_byte_stops_the_reader() {
-        let keys = sys::Pipe::new().unwrap();
-        let wake = sys::Pipe::new().unwrap();
-        let (sink, rx) = collect();
-        let reader = spawn(keys.read, wake.read, -1, sink);
-        sys::write_all_fd(keys.write, b"a\x1b[A").unwrap();
-        assert_eq!(rx.recv().unwrap(), Input::KeyPress(Key::char('a')));
-        assert_eq!(rx.recv().unwrap(), Input::KeyPress(Key::new(KeyCode::Up)));
-        let sigint = u8::try_from(signo::SIGINT).unwrap();
-        sys::write_all_fd(wake.write, &[sigint]).unwrap();
-        assert_eq!(rx.recv().unwrap(), Input::Interrupt);
-        let sigwinch = u8::try_from(signo::SIGWINCH).unwrap();
-        sys::write_all_fd(wake.write, &[sigwinch, STOP]).unwrap();
-        assert!(matches!(rx.recv().unwrap(), Input::Resize(_)));
-        reader.join().unwrap();
-        assert!(rx.try_recv().is_err(), "nothing after the stop byte");
-    }
-
-    #[test]
-    fn a_lone_escape_arrives_after_the_timeout() {
-        let keys = sys::Pipe::new().unwrap();
-        let wake = sys::Pipe::new().unwrap();
-        let (sink, rx) = collect();
-        let reader = spawn(keys.read, wake.read, -1, sink);
-        let sent = Instant::now();
-        sys::write_all_fd(keys.write, b"\x1b").unwrap();
-        assert_eq!(rx.recv().unwrap(), Input::KeyPress(Key::new(KeyCode::Esc)));
-        assert!(sent.elapsed() >= crate::input::ESC_TIMEOUT);
-        sys::write_all_fd(wake.write, &[STOP]).unwrap();
-        reader.join().unwrap();
-    }
-
-    #[test]
-    fn the_reader_stops_at_end_of_input() {
-        let wake = sys::Pipe::new().unwrap();
-        let mut keys = sys::Pipe::new().unwrap();
-        let (sink, _rx) = collect();
-        let reader = spawn(keys.read, wake.read, -1, sink);
-        keys.close_write();
-        reader.join().unwrap();
-    }
-}
+mod tests;

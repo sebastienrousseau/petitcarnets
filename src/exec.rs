@@ -7,7 +7,7 @@
 //! is done, and a sequence starts its next command only then.
 
 use crate::backend::Input;
-use crate::cmd::{Cmd, Fire, Inner, Output};
+use crate::cmd::{Cmd, Fire, Handover, Inner, Output};
 use crate::msg::Msg;
 use std::cmp::{Ordering, Reverse};
 use std::collections::{BinaryHeap, HashMap, VecDeque};
@@ -46,6 +46,8 @@ pub(crate) enum Item<M> {
     Panic(String),
     /// Output for the renderer.
     Output(Output),
+    /// Hand the terminal over or take it back.
+    Handover(Handover<M>),
 }
 
 /// Who to tell when a command is done.
@@ -119,6 +121,11 @@ impl<M: Send + 'static> Executor<M> {
         self.ready.push_back(item);
     }
 
+    /// Queues an item ahead of those already waiting.
+    pub(crate) fn push_front(&mut self, item: Item<M>) {
+        self.ready.push_front(item);
+    }
+
     /// Starts `cmd` from `init` or `update`.
     pub(crate) fn run(&mut self, cmd: Cmd<M>, now: Instant) {
         self.start(cmd, Parent::Root, now);
@@ -156,9 +163,6 @@ impl<M: Send + 'static> Executor<M> {
     /// Starts one command under `parent`.
     fn start(&mut self, cmd: Cmd<M>, parent: Parent, now: Instant) {
         match cmd.0 {
-            Inner::None => self.done.push_back(parent),
-            Inner::Quit => self.finish(parent, Item::Quit),
-            Inner::Interrupt => self.finish(parent, Item::Interrupt),
             Inner::Batch(cmds) => self.start_batch(cmds, parent, now),
             Inner::Sequence(cmds) => self.start_sequence(cmds, parent),
             Inner::Task(work) => self.spawn(work, parent),
@@ -166,7 +170,10 @@ impl<M: Send + 'static> Executor<M> {
             Inner::Every(period, fire) => {
                 self.add_timer(now + until_next(period, SystemTime::now()), fire, parent);
             }
-            Inner::Output(output) => self.finish(parent, Item::Output(output)),
+            other => match queued(other) {
+                Some(item) => self.finish(parent, item),
+                None => self.done.push_back(parent),
+            },
         }
     }
 
@@ -257,6 +264,18 @@ impl<M: Send + 'static> Executor<M> {
     fn id(&mut self) -> u64 {
         self.next_id += 1;
         self.next_id
+    }
+}
+
+/// What a command that only queues something queues: nothing for
+/// [`Cmd::none`].
+fn queued<M>(inner: Inner<M>) -> Option<Item<M>> {
+    match inner {
+        Inner::Quit => Some(Item::Quit),
+        Inner::Interrupt => Some(Item::Interrupt),
+        Inner::Output(output) => Some(Item::Output(output)),
+        Inner::Handover(handover) => Some(Item::Handover(handover)),
+        _ => None,
     }
 }
 

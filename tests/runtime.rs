@@ -13,6 +13,7 @@ struct Probe {
     messages: Vec<&'static str>,
     keys: Vec<String>,
     events: Vec<String>,
+    profiles: Vec<tea::ColorProfile>,
     view: tea::View,
 }
 
@@ -22,6 +23,7 @@ impl tea::Model for Probe {
     fn update(&mut self, msg: tea::Msg<&'static str>) -> tea::Cmd<&'static str> {
         match msg {
             tea::Msg::WindowSize(size) => self.sizes.push(size),
+            tea::Msg::ColorProfile(profile) => self.profiles.push(profile),
             tea::Msg::App(m) => {
                 self.messages.push(m);
                 if m == "done" {
@@ -388,6 +390,9 @@ impl tea::Model for Printer {
     type Msg = u32;
 
     fn update(&mut self, msg: tea::Msg<u32>) -> tea::Cmd<u32> {
+        if matches!(msg, tea::Msg::ColorProfile(_)) {
+            return tea::Cmd::none();
+        }
         self.n += 1;
         match msg {
             tea::Msg::KeyPress(k) => match k.to_string().as_str() {

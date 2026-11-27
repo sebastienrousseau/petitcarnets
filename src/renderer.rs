@@ -20,6 +20,7 @@ pub(crate) mod layout;
 mod scroll;
 mod writer;
 
+use crate::color::ColorProfile;
 use crate::msg::Size;
 use crate::unicode::WidthMethod;
 use crate::view::View;
@@ -33,6 +34,7 @@ use writer::{Addressing, Writer};
 pub(crate) struct Renderer {
     size: Size,
     method: WidthMethod,
+    profile: ColorProfile,
     sync: bool,
     alt: bool,
     screen: Frame,
@@ -51,6 +53,7 @@ impl Renderer {
         Self {
             size,
             method: WidthMethod::WcWidth,
+            profile: ColorProfile::TrueColor,
             sync: false,
             alt: false,
             screen: Frame::default(),
@@ -62,6 +65,11 @@ impl Renderer {
         }
     }
 
+    /// The window's size, as the renderer knows it.
+    pub(crate) const fn size(&self) -> Size {
+        self.size
+    }
+
     /// Whether frames are drawn on the alternate screen.
     pub(crate) const fn is_alt(&self) -> bool {
         self.alt
@@ -70,6 +78,17 @@ impl Renderer {
     /// Wraps frames in synchronized output from now on.
     pub(crate) fn set_sync(&mut self, on: bool) {
         self.sync = on;
+    }
+
+    /// Brings every colour down to `profile` from the next frame on,
+    /// which is drawn in full.
+    pub(crate) fn set_color_profile(&mut self, profile: ColorProfile) {
+        self.profile = profile;
+        self.writer.profile = profile;
+        if let Some((writer, _)) = self.saved.as_mut() {
+            writer.profile = profile;
+        }
+        self.pending.erase = true;
     }
 
     /// Measures text with `method` from the next frame on.
@@ -90,6 +109,41 @@ impl Renderer {
         self.pending.clear = true;
     }
 
+    /// Draws the next frame in full, as if nothing were on screen, with
+    /// the cursor shown or hidden again: the alternate screen is cleared
+    /// first, an inline frame erased where it is. For a screen something
+    /// else may have written over.
+    pub(crate) fn repaint(&mut self) {
+        self.pending.erase = true;
+        self.pending.clear |= self.alt;
+        self.shown = None;
+    }
+
+    /// Hands the screen over to another program: an inline frame is
+    /// erased and the cursor left where it started, shown; the next
+    /// frame is then drawn in full from wherever the cursor is, as after
+    /// [`Renderer::new`].
+    pub(crate) fn release(&mut self, out: &mut dyn Write) -> io::Result<()> {
+        let written = self.close(out, if self.alt { None } else { Some(0) });
+        let (width, height) = (usize::from(self.size.width), usize::from(self.size.height));
+        self.writer = if self.alt {
+            Writer::new(width, height, Addressing::Absolute)
+        } else {
+            let mut writer = Writer::new(width, 1, Addressing::Relative);
+            writer.x = None;
+            writer
+        };
+        self.writer.profile = self.profile;
+        self.screen = Frame::default();
+        self.cursor = None;
+        self.saved = None;
+        self.pending = Pending {
+            erase: true,
+            ..Pending::default()
+        };
+        written
+    }
+
     /// Draws on the alternate screen from now on (`alt`), or inline
     /// again. The caller switches the terminal's screen; the next frame
     /// is drawn in full. Inline, the cursor and frame are where the
@@ -103,6 +157,7 @@ impl Renderer {
             let inline = (self.writer.clone(), std::mem::take(&mut self.screen));
             self.saved = Some(inline);
             self.writer = Writer::new(width, height, Addressing::Absolute);
+            self.writer.profile = self.profile;
         } else {
             let fresh = || {
                 (
@@ -112,6 +167,7 @@ impl Renderer {
             };
             let (writer, screen) = self.saved.take().unwrap_or_else(fresh);
             self.writer = writer;
+            self.writer.profile = self.profile;
             self.writer.width = width;
             self.screen = screen;
         }
@@ -272,7 +328,7 @@ impl Renderer {
             return Ok(());
         }
         let width = usize::from(self.size.width);
-        let (lines, rows) = insert::encode(text, width, self.method);
+        let (lines, rows) = insert::encode(text, width, self.method, self.profile);
         let height = self.screen.rows.len().max(1);
         let mut s = insert::make_room(self.writer.y, height, rows);
         s.push_str(&lines);

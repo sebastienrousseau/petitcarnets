@@ -145,3 +145,113 @@ fn println_goes_above_the_frame_of_the_update_that_printed() {
     assert_eq!(vt.row_text(0), "printed");
     assert_eq!(vt.row_text(1), "goodbye");
 }
+
+/// On the alternate screen with the mouse on; keys damage the terminal
+/// (`d`), repair it (`r` repaints, `c` clears the screen), run a
+/// command (`x`), and mark the output (`m`).
+#[derive(Debug, Default)]
+struct Damaged(u32);
+
+impl Model for Damaged {
+    type Msg = ();
+
+    fn update(&mut self, msg: Msg<()>) -> Cmd<()> {
+        let Msg::KeyPress(key) = msg else {
+            return Cmd::none();
+        };
+        self.0 += 1;
+        match key.to_string().as_str() {
+            "d" => crate::raw("\x1b[?1049l\x1b[?1002l\x1b[?2004lJUNK"),
+            "r" => crate::repaint(),
+            "c" => crate::clear_screen(),
+            "x" => crate::exec_command(Noop, |_| ()),
+            "m" => crate::raw("<MARK>"),
+            "q" => quit(),
+            _ => Cmd::none(),
+        }
+    }
+
+    fn view(&self) -> View {
+        View::new(format!("frame {}", self.0))
+            .with_alt_screen(true)
+            .with_mouse_mode(crate::MouseMode::CellMotion)
+    }
+}
+
+/// A command that does nothing.
+struct Noop;
+
+impl crate::ExecCommand for Noop {
+    fn run(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Runs [`Damaged`] with `keys`, then `m` and `q`; the terminal as it
+/// was at the mark, and all that was written.
+fn damage(keys: &str) -> (Vt, String) {
+    let keys = keys.chars().chain("mq".chars()).map(Key::char);
+    let backend = TestBackend::new(20, 5).keys(keys);
+    let screen = backend.screen();
+    let _ = Program::new(Damaged::default()).run_with(backend).unwrap();
+    let raw = screen.raw();
+    let mark = raw.find("<MARK>").expect("marked");
+    let mut vt = Vt::new(20, 5);
+    vt.feed(&raw.as_bytes()[..mark]);
+    (vt, raw)
+}
+
+#[test]
+fn damage_leaves_the_terminal_broken_without_a_repair() {
+    let (vt, _) = damage("d");
+    assert!(!vt.alt_screen());
+    assert!(!vt.mode(1002) && !vt.mode(2004));
+}
+
+#[test]
+fn repaint_enters_the_alternate_screen_again_with_every_mode_and_the_frame() {
+    let (vt, _) = damage("dr");
+    assert!(vt.alt_screen());
+    assert!(vt.mode(1002) && vt.mode(1006) && vt.mode(2004));
+    assert!(!vt.autowrap());
+    assert_eq!(vt.text(), "frame 2");
+}
+
+#[test]
+fn clear_screen_writes_the_modes_again() {
+    let (vt, _) = damage("dc");
+    assert!(vt.mode(1002) && vt.mode(2004));
+    assert_eq!(vt.row_text(0), "frame 2");
+}
+
+#[test]
+fn after_an_exec_the_alternate_screen_and_modes_are_back_and_the_main_screen_kept() {
+    let (vt, raw) = damage("x");
+    assert!(vt.alt_screen());
+    assert!(vt.mode(1002) && vt.mode(2004));
+    assert_eq!(vt.text(), "frame 1");
+    let mut end = Vt::new(20, 5);
+    end.feed(raw.as_bytes());
+    assert!(!end.alt_screen() && !end.mode(1002) && end.autowrap());
+    assert!(end.unknown().is_empty(), "{:?}", end.unknown());
+}
+
+#[test]
+fn queries_are_gated_as_bubble_tea_gates_them() {
+    let env = |pairs: &[(&str, &str)]| -> crate::Environment { pairs.iter().copied().collect() };
+    assert!(super::should_query(&env(&[])));
+    assert!(super::should_query(&env(&[("TERM_PROGRAM", "WezTerm")])));
+    assert!(!super::should_query(&env(&[(
+        "TERM_PROGRAM",
+        "Apple_Terminal"
+    )])));
+    assert!(!super::should_query(&env(&[("SSH_TTY", "/dev/pts/1")])));
+    assert!(super::should_query(&env(&[
+        ("SSH_TTY", "x"),
+        ("WT_SESSION", "1")
+    ])));
+    assert!(super::should_query(&env(&[
+        ("SSH_TTY", "x"),
+        ("TERM", "xterm-kitty")
+    ])));
+}

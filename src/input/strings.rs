@@ -1,4 +1,5 @@
-//! String sequences: OSC (colour replies), DCS (terminal version), and
+//! String sequences: OSC (colour and clipboard replies), DCS (terminal
+//! version, capabilities, tertiary device attributes), and
 //! APC, PM and SOS, which are read and dropped. Go's `parseOsc`,
 //! `parseDcs`, `parseApc` and `parseStTerminated`.
 
@@ -7,6 +8,7 @@ use super::{ESC, Event, PM, SOS, ST, byte_code, press_code};
 use crate::backend::Input;
 use crate::color::Rgb;
 use crate::key::{KeyCode, KeyMod};
+use crate::msg::ClipboardSelection;
 use crate::unicode;
 
 /// BEL, which ends an OSC.
@@ -115,7 +117,7 @@ fn osc_event(cmd: i64, data: &[u8]) -> Event {
         10 => colour(Input::ForegroundColor, "ForegroundColorEvent"),
         11 => colour(Input::BackgroundColor, "BackgroundColorEvent"),
         12 => colour(Input::CursorColor, "CursorColorEvent"),
-        52 => Event::Other("ClipboardEvent"),
+        52 => Event::Input(clipboard(data)),
         7501 if data[0] == b'?' => Event::Other("ProgramStatusSupportEvent"),
         _ => Event::Other("UnknownOscEvent"),
     }
@@ -168,20 +170,74 @@ pub(super) fn dcs(b: &[u8]) -> (usize, Event) {
 /// What a DCS with `head` and `data` is.
 fn dcs_event(head: &DcsHead, data: &[u8]) -> Event {
     match (head.prefix, head.intermediate, head.last) {
-        (0, b'+', b'r') if head.first_param == 1 => Event::Other("CapabilityEvent"),
+        (0, b'+', b'r') if head.first_param == 1 => Event::Input(Input::Capability(termcap(data))),
         (b'>', 0, b'|') => {
             let name = String::from_utf8_lossy(data).into_owned();
             Event::Input(Input::TerminalVersion(name))
         }
-        (0, b'!', b'|') if is_hex(data) => Event::Other("TertiaryDeviceAttributesEvent"),
+        (0, b'!', b'|') => unhex(data).map_or(Event::Other("UnknownDcsEvent"), |bytes| {
+            let id = String::from_utf8_lossy(&bytes).into_owned();
+            Event::Input(Input::TertiaryDeviceAttributes(id))
+        }),
         _ => Event::Other("UnknownDcsEvent"),
     }
 }
 
-/// Whether `data` is whole bytes of hex digits, as Go's
-/// `hex.DecodeString` wants.
-fn is_hex(data: &[u8]) -> bool {
-    data.len() % 2 == 0 && data.iter().all(u8::is_ascii_hexdigit)
+/// `data` read as hex digits, two to a byte, as Go's `hex.DecodeString`
+/// reads it; `None` if it is not whole bytes of hex.
+fn unhex(data: &[u8]) -> Option<Vec<u8>> {
+    if data.len() % 2 != 0 {
+        return None;
+    }
+    data.chunks(2)
+        .map(|pair| {
+            let digit = |d: u8| char::from(d).to_digit(16);
+            let byte = digit(pair[0])? * 16 + digit(pair[1])?;
+            u8::try_from(byte).ok()
+        })
+        .collect()
+}
+
+/// An OSC 52 reply, `selection ; base64`: Go's `ClipboardEvent`. Data
+/// that is not base64 is kept as it is, with no selection, as in Go.
+fn clipboard(data: &[u8]) -> Input {
+    let text = |b: &[u8]| String::from_utf8_lossy(b).into_owned();
+    let parts: Vec<&[u8]> = data.split(|&b| b == b';').collect();
+    let (selection, content) = match parts.as_slice() {
+        [selection, content] if !selection.is_empty() => match crate::base64::decode(content) {
+            Some(bytes) => (ClipboardSelection::from(selection[0]), text(&bytes)),
+            None => (ClipboardSelection::from(0), text(content)),
+        },
+        _ => (ClipboardSelection::from(0), String::new()),
+    };
+    Input::Clipboard { content, selection }
+}
+
+/// An XTGETTCAP reply's data, `name=value;...` in hex, as Go's
+/// `parseTermcap` writes it: `name=value` pairs, or a name alone, joined
+/// by `;`, skipping any that are not hex.
+fn termcap(data: &[u8]) -> String {
+    if data.is_empty() {
+        return String::new();
+    }
+    let entries: Vec<String> = data.split(|&b| b == b';').filter_map(capability).collect();
+    entries.join(";")
+}
+
+/// One `name=value` or `name` entry of an XTGETTCAP reply, decoded.
+fn capability(entry: &[u8]) -> Option<String> {
+    let mut parts = entry.splitn(2, |&b| b == b'=');
+    let name = parts.next().and_then(unhex).filter(|n| !n.is_empty())?;
+    let value = match parts.next() {
+        Some(v) => unhex(v)?,
+        None => Vec::new(),
+    };
+    let mut out = String::from_utf8_lossy(&name).into_owned();
+    if !value.is_empty() {
+        out.push('=');
+        out.push_str(&String::from_utf8_lossy(&value));
+    }
+    Some(out)
 }
 
 /// `APC data ST`, read and dropped (kitty graphics replies among them).
