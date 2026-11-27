@@ -18,6 +18,7 @@
 use std::ffi::{c_int, c_short, c_ulong, c_ushort, c_void};
 use std::io;
 use std::sync::atomic::{AtomicI32, Ordering};
+use std::time::{Duration, Instant};
 
 /// Room for any platform's `termios` (60 bytes on Linux, 72 on macOS).
 const TERMIOS_WORDS: usize = 32;
@@ -227,18 +228,25 @@ fn interrupted_or(err: io::Error) -> io::Result<()> {
 }
 
 /// Which of `fds` can be read without blocking (or have hung up), waiting
-/// until at least one can. Interrupted waits are retried.
-pub(crate) fn wait_readable<const N: usize>(fds: [c_int; N]) -> io::Result<[bool; N]> {
+/// until at least one can or `timeout` passes (none are, then); `None`
+/// waits as long as it takes. Interrupted waits are retried with the
+/// time left.
+pub(crate) fn wait_readable<const N: usize>(
+    fds: [c_int; N],
+    timeout: Option<Duration>,
+) -> io::Result<[bool; N]> {
     let mut polled = fds.map(|fd| PollFd {
         fd,
         events: POLLIN,
         revents: 0,
     });
     let count = os::NFds::try_from(N).map_err(io::Error::other)?;
+    let deadline = timeout.map(|t| Instant::now() + t);
     loop {
+        let wait = poll_timeout(deadline);
         // SAFETY: `polled` is a live array of `N` `pollfd`s; `poll` only
         // writes their `revents`.
-        let rc = unsafe { poll(polled.as_mut_ptr(), count, -1) };
+        let rc = unsafe { poll(polled.as_mut_ptr(), count, wait) };
         if rc >= 0 {
             break;
         }
@@ -246,6 +254,16 @@ pub(crate) fn wait_readable<const N: usize>(fds: [c_int; N]) -> io::Result<[bool
     }
     let ready = POLLIN | POLLERR | POLLHUP | POLLNVAL;
     Ok(polled.map(|p| p.revents & ready != 0))
+}
+
+/// `poll`'s timeout in milliseconds until `deadline`, rounded up so the
+/// wait never ends early; -1 for none.
+fn poll_timeout(deadline: Option<Instant>) -> c_int {
+    deadline.map_or(-1, |at| {
+        let left = at.saturating_duration_since(Instant::now());
+        let ms = left.as_micros().div_ceil(1000);
+        c_int::try_from(ms).unwrap_or(c_int::MAX)
+    })
 }
 
 /// A pipe whose write end never blocks: a signal handler or another
@@ -365,10 +383,19 @@ mod tests {
     fn a_pipe_carries_bytes_and_wakes_a_wait() {
         let pipe = Pipe::new().unwrap();
         write_all_fd(pipe.write, b"hi").unwrap();
-        assert_eq!(wait_readable([pipe.read]).unwrap(), [true]);
+        assert_eq!(wait_readable([pipe.read], None).unwrap(), [true]);
         let mut buf = [0u8; 8];
         assert_eq!(read_fd(pipe.read, &mut buf).unwrap(), 2);
         assert_eq!(&buf[..2], b"hi");
+    }
+
+    #[test]
+    fn a_wait_ends_at_its_timeout() {
+        let pipe = Pipe::new().unwrap();
+        let start = Instant::now();
+        let ready = wait_readable([pipe.read], Some(Duration::from_millis(20))).unwrap();
+        assert_eq!(ready, [false]);
+        assert!(start.elapsed() >= Duration::from_millis(20));
     }
 
     #[test]
