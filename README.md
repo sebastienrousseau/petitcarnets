@@ -20,7 +20,12 @@ focus, and the terminal's replies. From v0.0.3 it has Bubble Tea v2's
 renderer: views draw inline by default (or on the alternate screen when
 they ask), on a cell buffer that writes only the cells that change, with
 wide characters, emoji and tabs measured as Go measures them; `println`
-prints above an inline frame. Expect the API to grow.
+prints above an inline frame. From v0.0.4 it has Bubble Tea's
+lifecycle: run an editor or a shell in the terminal (`exec`), suspend
+with Ctrl-Z, release and restore the terminal, repaint after something
+else wrote over it, a colour profile detected from the environment that
+every colour written comes down to, and the terminal queries (colours,
+cursor, version, capabilities, clipboard). Expect the API to grow.
 
 ## Why
 
@@ -34,7 +39,8 @@ prints above an inline frame. Expect the API to grow.
   wake up at all.
 - **Restores your terminal.** Raw mode and every terminal mode are undone
   on quit, on panic (in `update` or in a task), on `SIGINT` and
-  `SIGTERM`; a real-terminal test checks each one in CI.
+  `SIGTERM`, and around an `exec` or a suspend, with no key lost or read
+  twice; a real-terminal test checks each one in CI.
 - **Testable.** A headless backend runs a model with scripted keys and
   captures the screen, with no pseudo-terminal.
 - **Small, prompt frames.** Frames are diffed cell by cell; an unchanged
@@ -75,7 +81,21 @@ fn main() -> Result<(), tea::Error> {
 Run the examples with `cargo run --example counter` (also `picker`,
 `spinner`, `lifecycle`, `mouse`, `keyboard-enhancements`, and, named
 after Bubble Tea's, `altscreen-toggle`, `cursor-style`,
-`set-window-title` and `package-manager`).
+`set-window-title`, `package-manager`, `exec`, `suspend` and
+`query-term`).
+
+**Ctrl-Z suspends by default.** Unlike Bubble Tea, where each program
+must handle it ([its issue #500](https://github.com/charmbracelet/bubbletea/issues/500)),
+Ctrl-Z suspends a petitcarnets program as it would any shell program:
+the terminal is given back, the shell's `fg` brings the program back, and
+the model gets `tea::Msg::Resume`. A program that wants Ctrl-Z as a key
+(for undo, say) opts out with `tea::Program::new(m).without_suspend()`;
+`tea::suspend()` and `kill -TSTP` still suspend it.
+
+Colours come down to what the terminal shows, detected from `TERM`,
+`COLORTERM`, `NO_COLOR`, `CLICOLOR` and the rest as Bubble Tea detects
+them: with `NO_COLOR` set, no colour is written anywhere (frames and
+`println` alike) while bold, italic and underline stay.
 
 As in Bubble Tea v2, a view is drawn inline unless it sets
 `alt_screen`. When an inline program quits, its last frame stays on
@@ -97,6 +117,11 @@ a program that wants nothing left behind returns an empty view last.
 | `tea.Println(s)`, `tea.Printf(f, a)` | `tea::println(s)`, `tea::printf!(f, a)` |
 | `tea.Raw(s)`, `tea.ClearScreen` | `tea::raw(s)`, `tea::clear_screen()` |
 | `tea.WithFPS(n)` | `Program::new(m).with_fps(n)` |
+| `tea.ExecProcess(cmd, fn)`, `tea.Exec(c, fn)` | `tea::exec(cmd, f)`, `tea::exec_command(c, f)` |
+| `tea.Suspend`, `case tea.ResumeMsg:` | `tea::suspend()`, `tea::Msg::Resume =>` |
+| `p.ReleaseTerminal()`, `p.RestoreTerminal()` | `tea::release_terminal()`, `tea::restore_terminal()` |
+| `tea.WithColorProfile(p)`, `tea.WithEnvironment(env)` | `.with_color_profile(p)`, `.with_environment(env)` |
+| `tea.RequestBackgroundColor`, `tea.SetClipboard(s)` | `tea::request_background_color()`, `tea::set_clipboard(s)` |
 | `case tea.WindowSizeMsg:` | `tea::Msg::WindowSize(size) =>` |
 | `return m, tea.Quit` | `return tea::quit()` |
 | `tea.Batch(a, b)`, `tea.Sequence(a, b)` | `tea::batch([a, b])`, `tea::sequence([a, b])` |
