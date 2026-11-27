@@ -78,6 +78,18 @@ if grep -a -q 'Final count: 2' "$dir/counter.log"; then
 else
   echo "FAIL counter: wrong or missing final count"; fails=$((fails + 1))
 fi
+# Standard input from /dev/null and standard output into a pipe: keys
+# must come from /dev/tty, frames go there too, and the pipe gets only
+# what the program prints after it ends.
+counter_keys | script -q -e -c \
+  "stty -g > $dir/before; ./target/debug/examples/counter < /dev/null | cat > $dir/piped; stty -g > $dir/after" \
+  "$dir/tty.log" > /dev/null || true
+if [[ "$(cat "$dir/piped")" == "Final count: 2" ]] && cmp -s "$dir/before" "$dir/after" &&
+  grep -a -q 'Count:' "$dir/tty.log"; then
+  echo "ok   dev-tty: drew on /dev/tty, read keys there, piped only the result"
+else
+  echo "FAIL dev-tty: piped '$(cat "$dir/piped")'"; fails=$((fails + 1))
+fi
 run quit lifecycle 0 press_q
 run ctrl-c-key lifecycle 0 press_ctrl_c
 run panic-in-update lifecycle 101 press_p
