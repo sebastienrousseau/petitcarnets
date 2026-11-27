@@ -52,6 +52,15 @@ jobs:
           targets: x86_64-unknown-linux-musl
       - run: cargo test --all-targets --target x86_64-unknown-linux-musl
 
+  fuzz:
+    name: Fuzz (10M)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Ten million inputs through the input decoder
+        run: cargo test --release --lib -- --ignored fuzz_ten_million
+
   pty:
     name: Real terminal smoke test
     runs-on: ubuntu-latest
