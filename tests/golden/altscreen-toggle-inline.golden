@@ -1,0 +1,11 @@
+size 40x8, main screen
+cursor 0,6 hidden, style 0
+modes 2004
+keyboard flags 1, modifyOtherKeys 2
+----------------------------------------
+
+
+  You're in  inline mode
+
+
+  space: switch modes • q: exit

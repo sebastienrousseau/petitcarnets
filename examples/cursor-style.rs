@@ -6,9 +6,9 @@
 use petitcarnets as tea;
 use tea::{Cursor, CursorShape};
 
-struct Shapes {
-    shape: CursorShape,
-    blink: bool,
+pub(crate) struct Shapes {
+    pub(crate) shape: CursorShape,
+    pub(crate) blink: bool,
 }
 
 /// The shape after `shape`, going round.
@@ -55,7 +55,8 @@ impl tea::Model for Shapes {
     }
 }
 
-fn main() -> Result<(), tea::Error> {
+// `pub(crate)`: `tests/golden.rs` includes this file for its model.
+pub(crate) fn main() -> Result<(), tea::Error> {
     let shapes = Shapes {
         shape: CursorShape::Block,
         blink: true,

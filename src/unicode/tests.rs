@@ -40,3 +40,15 @@ fn runes_decode_as_go_decodes_them() {
     assert_eq!(decode_rune(b"\xff"), (REPLACEMENT, 1));
     assert_eq!(decode_rune("\u{FFFD}".as_bytes()), (REPLACEMENT, 3));
 }
+
+#[test]
+fn noncharacters_and_format_characters_are_reserved() {
+    for r in [
+        0xFDD0, 0xFDEF, 0xFFFE, 0xFFFF, 0x1_FFFE, 0x10_FFFF, 0x200B, 0xE0001,
+    ] {
+        assert!(is_reserved(r), "{r:X}");
+    }
+    for r in [0x41, 0xFDCF, 0xFDF0, 0xFFFD, 0x1_FFFD, 0x2010] {
+        assert!(!is_reserved(r), "{r:X}");
+    }
+}

@@ -5,7 +5,7 @@
 use petitcarnets as tea;
 use tea::style::Style;
 
-struct Counter(i64);
+pub(crate) struct Counter(pub(crate) i64);
 
 impl tea::Model for Counter {
     type Msg = ();
@@ -33,7 +33,8 @@ impl tea::Model for Counter {
     }
 }
 
-fn main() -> Result<(), tea::Error> {
+// `pub(crate)`: `tests/golden.rs` includes this file for its model.
+pub(crate) fn main() -> Result<(), tea::Error> {
     let counter = tea::Program::new(Counter(0)).run()?;
     println!("Final count: {}", counter.0);
     Ok(())

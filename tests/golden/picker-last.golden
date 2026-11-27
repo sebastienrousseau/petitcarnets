@@ -1,0 +1,13 @@
+size 50x10, alternate screen
+cursor 7,5 hidden, style 0
+modes 1049 2004
+keyboard flags 1, modifyOtherKeys 2
+--------------------------------------------------
+
+  Choose an allocation method
+
+    equal-weight
+    min-variance
+  > hrp
+
+  up/down to move, enter to choose, q to quit

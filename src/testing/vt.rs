@@ -5,12 +5,14 @@
 //! Anything it does not understand, and the controls a good renderer
 //! never sends (tab and backspace), is logged in [`Vt::unknown`].
 
+mod cell;
 mod csi;
 mod edit;
 mod escape;
 mod grid;
 mod modes;
 mod print;
+mod snapshot;
 mod stream;
 
 #[cfg(test)]
@@ -19,6 +21,7 @@ mod tests;
 use crate::ansi::{self, Token};
 use crate::renderer::cell::{Cell, Link, Pen};
 use crate::unicode::WidthMethod;
+pub use cell::ScreenCell;
 use grid::Grid;
 use std::collections::BTreeSet;
 
@@ -45,10 +48,24 @@ struct Saved {
     pen: Pen,
 }
 
-/// A terminal emulator for tests: feed it bytes, then look at the
-/// screen.
+/// A terminal emulator for tests: feed it the bytes a program writes,
+/// then look at the screen a terminal would show. It follows xterm for
+/// what a renderer sends: text and wide characters, cursor moves,
+/// erasing, scrolling and scroll regions, styles and hyperlinks, the
+/// alternate screen, DEC private modes, the cursor's style, the window
+/// title, and the kitty keyboard flags.
+///
+/// ```
+/// use petitcarnets::testing::Vt;
+///
+/// let mut vt = Vt::new(10, 2);
+/// vt.feed(b"hello\r\n\x1b[1mworld");
+/// assert_eq!(vt.text(), "hello\nworld");
+/// assert_eq!(vt.cursor(), (5, 1));
+/// assert_eq!(vt.cell(0, 1).map(|c| c.style()), Some("\x1b[1m".to_string()));
+/// ```
 #[derive(Debug)]
-pub(crate) struct Vt {
+pub struct Vt {
     /// Width in cells.
     columns: u16,
     /// Height in cells.
@@ -81,6 +98,10 @@ pub(crate) struct Vt {
     cursor_style: u8,
     /// The window title.
     title: String,
+    /// The kitty keyboard flags pushed, the current ones last.
+    keyboard: Vec<u8>,
+    /// The modifyOtherKeys level (`CSI > 4 ; n m`).
+    other_keys: u8,
     /// Titles pushed by `CSI 22 t`.
     titles: Vec<String>,
     /// Main screen lines scrolled off the top, oldest first.
@@ -100,7 +121,8 @@ pub(crate) struct Vt {
 impl Vt {
     /// A `columns` by `rows` terminal (at least 1 by 1) on its main
     /// screen: autowrap on, cursor shown at the top left, default pen.
-    pub(crate) fn new(columns: u16, rows: u16) -> Self {
+    #[must_use]
+    pub fn new(columns: u16, rows: u16) -> Self {
         let (columns, rows) = (columns.max(1), rows.max(1));
         Self {
             columns,
@@ -119,6 +141,8 @@ impl Vt {
             modes: BTreeSet::from([7, 25]),
             cursor_style: 0,
             title: String::new(),
+            keyboard: Vec::new(),
+            other_keys: 0,
             titles: Vec::new(),
             scrollback: Vec::new(),
             sync_frames: 0,
@@ -129,15 +153,17 @@ impl Vt {
         }
     }
 
-    /// The same terminal, measuring text with `method`.
-    pub(crate) fn with_width_method(mut self, method: WidthMethod) -> Self {
+    /// The same terminal, measuring text with `method` (wcwidth by
+    /// default).
+    #[must_use]
+    pub const fn with_width_method(mut self, method: WidthMethod) -> Self {
         self.method = method;
         self
     }
 
     /// Reads `bytes`. A sequence or code point cut off at the end waits
     /// for the next feed; invalid UTF-8 reads as U+FFFD.
-    pub(crate) fn feed(&mut self, bytes: &[u8]) {
+    pub fn feed(&mut self, bytes: &[u8]) {
         self.partial.extend_from_slice(bytes);
         let (text, held) = stream::split_utf8(&self.partial);
         let cut = stream::complete_len(&text, self.method);
@@ -165,7 +191,7 @@ impl Vt {
     /// A new size, `columns` by `rows` (at least 1 by 1): rows and
     /// columns are cut or padded with blanks, not reflowed; the cursor
     /// stays inside and the scroll region is the whole screen again.
-    pub(crate) fn resize(&mut self, columns: u16, rows: u16) {
+    pub fn resize(&mut self, columns: u16, rows: u16) {
         let (columns, rows) = (columns.max(1), rows.max(1));
         self.main.resize(columns, rows);
         self.alt.resize(columns, rows);
@@ -174,20 +200,40 @@ impl Vt {
         self.move_to(self.cursor.x, self.cursor.y);
     }
 
-    /// The cell at column `x` of row `y` on the screen shown.
-    pub(crate) fn cell(&self, x: u16, y: u16) -> &Cell {
+    /// The screen's width and height in cells.
+    #[must_use]
+    pub const fn size(&self) -> (u16, u16) {
+        (self.columns, self.rows)
+    }
+
+    /// The cell at column `x` of row `y` on the screen shown, from 0;
+    /// `None` off the screen.
+    #[must_use]
+    pub fn cell(&self, x: u16, y: u16) -> Option<ScreenCell<'_>> {
+        (x < self.columns && y < self.rows).then(|| ScreenCell::new(self.raw_cell(x, y)))
+    }
+
+    /// The cell at column `x` of row `y` on the screen shown, as the
+    /// renderer keeps it.
+    pub(crate) fn raw_cell(&self, x: u16, y: u16) -> &Cell {
         self.screen().cell(x, y)
     }
 
     /// What row `y` shows: continuation cells skipped, trailing spaces
-    /// left out.
-    pub(crate) fn row_text(&self, y: u16) -> String {
-        self.screen().row_text(y)
+    /// left out; empty off the screen.
+    #[must_use]
+    pub fn row_text(&self, y: u16) -> String {
+        if y < self.rows {
+            self.screen().row_text(y)
+        } else {
+            String::new()
+        }
     }
 
     /// What the screen shows: each row's text, joined by newlines,
     /// trailing empty rows left out.
-    pub(crate) fn text(&self) -> String {
+    #[must_use]
+    pub fn text(&self) -> String {
         let mut lines: Vec<String> = (0..self.rows).map(|y| self.row_text(y)).collect();
         while lines.last().is_some_and(String::is_empty) {
             drop(lines.pop());
@@ -196,67 +242,102 @@ impl Vt {
     }
 
     /// The cursor's column and row, from 0.
-    pub(crate) fn cursor(&self) -> (u16, u16) {
+    #[must_use]
+    pub const fn cursor(&self) -> (u16, u16) {
         (self.cursor.x, self.cursor.y)
     }
 
     /// Whether the cursor is shown (mode 25).
-    pub(crate) fn cursor_visible(&self) -> bool {
+    #[must_use]
+    pub fn cursor_visible(&self) -> bool {
         self.mode(25)
     }
 
-    /// The last cursor style set by `CSI n SP q`, 0 at first.
-    pub(crate) fn cursor_style(&self) -> u8 {
+    /// The last cursor style set by `CSI n SP q`, 0 at first: 1 and 2
+    /// are a blinking and a steady block, 3 and 4 an underline, 5 and 6
+    /// a bar.
+    #[must_use]
+    pub const fn cursor_style(&self) -> u8 {
         self.cursor_style
     }
 
     /// Whether the alternate screen is shown.
-    pub(crate) fn alt_screen(&self) -> bool {
+    #[must_use]
+    pub const fn alt_screen(&self) -> bool {
         self.on_alt
     }
 
     /// Whether autowrap is on (mode 7).
-    pub(crate) fn autowrap(&self) -> bool {
+    #[must_use]
+    pub fn autowrap(&self) -> bool {
         self.mode(7)
     }
 
-    /// Whether DEC private mode `n` is set.
-    pub(crate) fn mode(&self, n: u16) -> bool {
+    /// Whether DEC private mode `n` is set: 25 the cursor shown, 1002
+    /// and 1003 mouse motion, 1006 SGR mouse, 1004 focus reports, 2004
+    /// bracketed paste, 2026 a synchronised update.
+    #[must_use]
+    pub fn mode(&self, n: u16) -> bool {
         self.modes.contains(&n)
     }
 
+    /// Every DEC private mode set, in order.
+    pub fn modes(&self) -> impl Iterator<Item = u16> + '_ {
+        self.modes.iter().copied()
+    }
+
+    /// The kitty keyboard flags in force: those last pushed
+    /// (`CSI > flags u`) or set (`CSI = flags ; mode u`), 0 with none.
+    #[must_use]
+    pub fn keyboard_flags(&self) -> u8 {
+        self.keyboard.last().copied().unwrap_or(0)
+    }
+
+    /// The modifyOtherKeys level, from `CSI > 4 ; n m`; 0 at first.
+    #[must_use]
+    pub const fn modify_other_keys(&self) -> u8 {
+        self.other_keys
+    }
+
     /// The pen new text is written with.
-    pub(crate) fn pen(&self) -> Pen {
+    #[cfg(test)]
+    pub(crate) const fn pen(&self) -> Pen {
         self.pen
     }
 
     /// The window title.
-    pub(crate) fn title(&self) -> &str {
+    #[must_use]
+    pub fn title(&self) -> &str {
         &self.title
     }
 
     /// The text of main screen lines scrolled off the top, oldest first.
-    pub(crate) fn scrollback(&self) -> &[String] {
+    #[must_use]
+    pub fn scrollback(&self) -> &[String] {
         &self.scrollback
     }
 
     /// Whether a synchronised update (`CSI ? 2026 h`) is open.
-    pub(crate) fn in_sync(&self) -> bool {
+    #[must_use]
+    pub fn in_sync(&self) -> bool {
         self.mode(2026)
     }
 
     /// How many synchronised updates were opened and closed.
-    pub(crate) fn sync_frames(&self) -> usize {
+    #[must_use]
+    pub const fn sync_frames(&self) -> usize {
         self.sync_frames
     }
 
     /// Every OSC payload, in order.
-    pub(crate) fn osc_log(&self) -> &[String] {
+    #[must_use]
+    pub fn osc_log(&self) -> &[String] {
         &self.osc_log
     }
 
     /// Everything not understood, and every tab and backspace, in order.
-    pub(crate) fn unknown(&self) -> &[String] {
+    #[must_use]
+    pub fn unknown(&self) -> &[String] {
         &self.unknown
     }
 

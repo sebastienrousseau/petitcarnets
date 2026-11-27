@@ -8,9 +8,9 @@ use petitcarnets as tea;
 use tea::{Key, KeyboardEnhancements, Msg};
 
 #[derive(Default)]
-struct Keys {
+pub(crate) struct Keys {
     supported: Option<String>,
-    events: Vec<String>,
+    pub(crate) events: Vec<String>,
 }
 
 /// A key as `"A" (shift+a)`: what it prints as, then the keystroke.
@@ -54,7 +54,8 @@ impl tea::Model for Keys {
     }
 }
 
-fn main() -> Result<(), tea::Error> {
+// `pub(crate)`: `tests/golden.rs` includes this file for its model.
+pub(crate) fn main() -> Result<(), tea::Error> {
     let keys = tea::Program::new(Keys::default()).run()?;
     println!("{} key events", keys.events.len());
     Ok(())

@@ -1,0 +1,11 @@
+size 40x8, alternate screen
+cursor 31,5 hidden, style 0
+modes 1049 2004
+keyboard flags 1, modifyOtherKeys 2
+----------------------------------------
+
+
+  You're in  altscreen mode
+
+
+  space: switch modes • q: exit

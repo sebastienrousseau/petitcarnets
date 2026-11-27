@@ -1,0 +1,10 @@
+size 60x8, alternate screen
+cursor 27,4 hidden, style 0
+modes 1049 2004
+keyboard flags 1, modifyOtherKeys 2
+------------------------------------------------------------
+
+  pid <pid>
+
+  q quits, p panics in update, t panics in a task;
+  or send SIGINT or SIGTERM

@@ -238,3 +238,42 @@ fn view_colours_come_down_to_the_profile() {
     modes.apply(&view, &mut backend).unwrap();
     assert!(!screen.raw()[before..].contains("\x1b]11;"));
 }
+
+#[test]
+fn each_enhancement_sets_its_own_flag_once() {
+    let e = KeyboardEnhancements::new();
+    assert_eq!(e.report_event_types().report_event_types().flags(), 3);
+    assert_eq!(e.report_all_keys_as_escape_codes().flags(), 9);
+    assert_eq!(
+        e.report_all_keys_as_escape_codes()
+            .report_all_keys_as_escape_codes()
+            .flags(),
+        9
+    );
+    assert_eq!(
+        e.report_associated_text().report_associated_text().flags(),
+        17
+    );
+}
+
+#[test]
+fn a_report_reads_each_flag_on_its_own() {
+    let support = |flags| {
+        let r = KeyboardEnhancementsReport { flags };
+        [
+            r.supports_key_disambiguation(),
+            r.supports_event_types(),
+            r.supports_alternate_keys(),
+            r.supports_all_keys_as_escape_codes(),
+            r.supports_associated_text(),
+        ]
+    };
+    assert_eq!(support(0), [false; 5]);
+    assert_eq!(support(1), [true, false, false, false, false]);
+    assert_eq!(support(2), [true, true, false, false, false]);
+    assert_eq!(support(4), [true, false, true, false, false]);
+    assert_eq!(support(8), [true, false, false, true, false]);
+    assert_eq!(support(16), [true, false, false, false, true]);
+    assert_eq!(support(31), [true; 5]);
+    assert_eq!(support(-1), [false, true, true, true, true], "bits of -1");
+}

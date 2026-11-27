@@ -284,6 +284,14 @@ mod tests {
     }
 
     #[test]
+    fn plain_commands_describe_themselves() {
+        assert_eq!(format!("{:?}", Cmd::<()>::none()), "none");
+        assert_eq!(format!("{:?}", Cmd::<()>::default()), "none");
+        assert_eq!(format!("{:?}", Cmd::task(|| ())), "task(..)");
+        assert!(!Cmd::task(|| ()).is_none());
+    }
+
+    #[test]
     fn lifecycle_commands_describe_themselves() {
         let cmds = batch([
             exec(std::process::Command::new("true"), |_| 1),

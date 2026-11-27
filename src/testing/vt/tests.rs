@@ -25,7 +25,7 @@ fn new_terminal_is_blank_with_defaults() {
     assert!(vt.cursor_visible() && vt.autowrap() && !vt.alt_screen());
     assert_eq!(vt.cursor_style(), 0);
     assert_eq!(vt.pen(), Pen::DEFAULT);
-    assert!(vt.cell(3, 1).is_blank());
+    assert!(vt.raw_cell(3, 1).is_blank());
     assert_eq!(vt.unknown(), NONE);
 }
 
@@ -69,7 +69,7 @@ fn autowrap_off_overwrites_last_column() {
 fn wide_at_right_edge_with_autowrap_wraps() {
     let vt = vt(3, 2, "ab\u{4E2D}");
     assert_eq!(vt.text(), "ab\n\u{4E2D}");
-    assert!(vt.cell(1, 1).is_continuation());
+    assert!(vt.raw_cell(1, 1).is_continuation());
     assert_eq!(vt.cursor(), (2, 1));
 }
 
@@ -77,23 +77,23 @@ fn wide_at_right_edge_with_autowrap_wraps() {
 fn wide_at_right_edge_without_autowrap_ends_at_last_column() {
     let vt = vt(3, 2, "\x1b[?7lab\u{4E2D}");
     assert_eq!(vt.text(), "a\u{4E2D}");
-    assert_eq!(vt.cell(1, 0).width, 2);
-    assert!(vt.cell(2, 0).is_continuation());
+    assert_eq!(vt.raw_cell(1, 0).width, 2);
+    assert!(vt.raw_cell(2, 0).is_continuation());
 }
 
 #[test]
 fn overwriting_half_a_wide_cell_blanks_the_rest() {
     let vt = vt(6, 1, "\u{4E2D}\u{6587}\x1b[1GX\x1b[4GY");
     assert_eq!(vt.text(), "X  Y");
-    assert!(!vt.cell(1, 0).is_continuation());
-    assert!(!vt.cell(2, 0).is_continuation());
+    assert!(!vt.raw_cell(1, 0).is_continuation());
+    assert!(!vt.raw_cell(2, 0).is_continuation());
 }
 
 #[test]
 fn combining_mark_joins_previous_cell() {
     let mut vt = vt(5, 1, "e");
     vt.feed("\u{301}x".as_bytes());
-    assert_eq!(vt.cell(0, 0).glyph, Glyph::Cluster("e\u{301}".into()));
+    assert_eq!(vt.raw_cell(0, 0).glyph, Glyph::Cluster("e\u{301}".into()));
     assert_eq!(vt.row_text(0), "e\u{301}x");
 }
 
@@ -166,26 +166,26 @@ fn erase_insert_delete_characters() {
 fn background_colour_erase() {
     let vt = vt(4, 2, "ab\x1b[41m\x1b[1G\x1b[K\x1b[2;1H\x1b[2X");
     let red = on(Colour::Basic(1));
-    assert_eq!(vt.cell(0, 0).pen, red);
-    assert_eq!(vt.cell(3, 0).pen, red);
-    assert_eq!(vt.cell(1, 1).pen, red);
-    assert_eq!(vt.cell(2, 1).pen, Pen::DEFAULT);
-    assert!(!vt.cell(0, 0).is_blank());
+    assert_eq!(vt.raw_cell(0, 0).pen, red);
+    assert_eq!(vt.raw_cell(3, 0).pen, red);
+    assert_eq!(vt.raw_cell(1, 1).pen, red);
+    assert_eq!(vt.raw_cell(2, 1).pen, Pen::DEFAULT);
+    assert!(!vt.raw_cell(0, 0).is_blank());
 }
 
 #[test]
 fn background_colour_fills_scrolled_in_lines() {
     let vt = vt(2, 2, "\x1b[44m\x1b[S");
-    assert_eq!(vt.cell(0, 1).pen, on(Colour::Basic(4)));
+    assert_eq!(vt.raw_cell(0, 1).pen, on(Colour::Basic(4)));
 }
 
 #[test]
 fn sgr_sets_and_resets_pen() {
     let mut vt = vt(5, 1, "\x1b[1;38;2;1;2;3mA\x1b[mB");
-    let a = vt.cell(0, 0).pen;
+    let a = vt.raw_cell(0, 0).pen;
     assert_eq!(a.fg, Colour::Rgb(1, 2, 3));
     assert_eq!(a.attrs, crate::renderer::cell::attr::BOLD);
-    assert_eq!(vt.cell(1, 0).pen, Pen::DEFAULT);
+    assert_eq!(vt.raw_cell(1, 0).pen, Pen::DEFAULT);
     vt.feed(b"\x1b[4:3m");
     assert_eq!(vt.pen().underline, 3);
 }
@@ -248,7 +248,7 @@ fn reverse_index_scrolls_down_at_top() {
 fn save_and_restore_cursor() {
     let vt = vt(5, 3, "\x1b[2;3H\x1b[31m\x1b7\x1b[m\x1b[H\x1b8X");
     assert_eq!(vt.cursor(), (3, 1));
-    assert_eq!(vt.cell(2, 1).pen.fg, Colour::Basic(1));
+    assert_eq!(vt.raw_cell(2, 1).pen.fg, Colour::Basic(1));
 }
 
 #[test]
@@ -302,9 +302,9 @@ fn title_and_title_stack() {
 #[test]
 fn osc_8_links_cells() {
     let vt = vt(6, 1, "\x1b]8;id=1;http://a\x1b\\ab\x1b]8;;\x1b\\c");
-    let link = vt.cell(1, 0).link.as_deref();
+    let link = vt.raw_cell(1, 0).link.as_deref();
     assert_eq!(link, Some("id=1;http://a"));
-    assert_eq!(vt.cell(2, 0).link, None);
+    assert_eq!(vt.raw_cell(2, 0).link, None);
     assert_eq!(vt.unknown(), NONE);
 }
 
@@ -327,7 +327,7 @@ fn split_feeds_are_joined() {
         vt.feed(std::slice::from_ref(b));
     }
     assert_eq!(vt.row_text(0), "é中");
-    assert_eq!(vt.cell(0, 0).pen.fg, Colour::Basic(1));
+    assert_eq!(vt.raw_cell(0, 0).pen.fg, Colour::Basic(1));
     assert_eq!(vt.title(), "t");
     assert_eq!(vt.unknown(), NONE);
 }
@@ -379,7 +379,7 @@ fn resize_cuts_and_pads() {
 fn resize_blanks_cut_wide_cell() {
     let mut vt = vt(4, 1, "a\u{4E2D}");
     vt.resize(2, 1);
-    assert_eq!(*vt.cell(1, 0), Cell::BLANK);
+    assert_eq!(*vt.raw_cell(1, 0), Cell::BLANK);
 }
 
 #[test]
@@ -390,4 +390,70 @@ fn full_reset() {
     assert!(vt.cursor_visible());
     assert_eq!(vt.title(), "");
     assert_eq!(vt.osc_log(), ["2;t"]);
+}
+
+#[test]
+fn a_cell_shows_its_text_width_style_and_link() {
+    let vt = vt(
+        6,
+        2,
+        "\x1b[1;31ma\x1b[m\x1b]8;;https://x.example\x07界\x1b]8;;\x07",
+    );
+    let a = vt.cell(0, 0).unwrap();
+    assert_eq!(
+        (a.text(), a.width(), a.style()),
+        ("a".into(), 1, "\x1b[1;31m".into())
+    );
+    assert_eq!(a.link(), None);
+    let wide = vt.cell(1, 0).unwrap();
+    assert_eq!((wide.text(), wide.width()), ("界".into(), 2));
+    assert_eq!(wide.link(), Some("https://x.example"));
+    let half = vt.cell(2, 0).unwrap();
+    assert!(half.is_continuation() && !wide.is_continuation());
+    assert_eq!((half.text(), half.width()), (String::new(), 0));
+    let blank = vt.cell(5, 1).unwrap();
+    assert_eq!((blank.text(), blank.style()), (" ".into(), String::new()));
+    assert!(vt.cell(6, 0).is_none() && vt.cell(0, 2).is_none());
+    assert_eq!(vt.row_text(2), "", "off the screen");
+    assert_eq!(vt.size(), (6, 2));
+}
+
+#[test]
+fn kitty_keyboard_flags_are_pushed_set_and_popped() {
+    let mut vt = vt(4, 1, "\x1b[>1u");
+    assert_eq!(vt.keyboard_flags(), 1);
+    vt.feed(b"\x1b[=4;2u");
+    assert_eq!(vt.keyboard_flags(), 5, "added");
+    vt.feed(b"\x1b[=1;3u");
+    assert_eq!(vt.keyboard_flags(), 4, "removed");
+    vt.feed(b"\x1b[=3u");
+    assert_eq!(vt.keyboard_flags(), 3, "replaced");
+    vt.feed(b"\x1b[>8u\x1b[<u");
+    assert_eq!(vt.keyboard_flags(), 3, "one popped");
+    vt.feed(b"\x1b[<5u");
+    assert_eq!(vt.keyboard_flags(), 0, "popped past the bottom");
+    vt.feed(b"\x1b[=2u");
+    assert_eq!(vt.keyboard_flags(), 2, "set with nothing pushed");
+    assert_eq!(vt.unknown(), NONE);
+}
+
+#[test]
+fn modify_other_keys_levels_are_kept() {
+    let mut vt = vt(4, 1, "\x1b[>4;2m");
+    assert_eq!(vt.modify_other_keys(), 2);
+    vt.feed(b"\x1b[>4m");
+    assert_eq!(vt.modify_other_keys(), 0);
+    vt.feed(b"\x1b[>5;1m");
+    assert_eq!(vt.unknown(), ["CSI >5;1m"]);
+}
+
+#[test]
+fn a_snapshot_shows_the_alternate_screen_a_hidden_cursor_and_the_title() {
+    let vt = vt(4, 2, "\x1b[?1049h\x1b[?25l\x1b[3 q\x1b]2;t\x07ab\r\n");
+    assert_eq!(
+        vt.snapshot(),
+        "size 4x2, alternate screen\ncursor 0,1 hidden, style 3\nmodes 7 1049\n\
+         keyboard flags 0, modifyOtherKeys 0\ntitle \"t\"\n----\nab\n"
+    );
+    assert_eq!(vt.modes().collect::<Vec<_>>(), [7, 1049]);
 }

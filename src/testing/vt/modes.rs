@@ -53,14 +53,41 @@ pub(super) fn xtwinops(vt: &mut Vt, p: &Params<'_>) -> bool {
     true
 }
 
-/// modifyOtherKeys (`CSI > 4 ; n m`, `CSI > 4 m`): understood, with no
-/// effect on the screen.
-pub(super) fn modify_other_keys(_: &mut Vt, p: &Params<'_>) -> bool {
-    p.get(0, 0) == 4
+/// modifyOtherKeys (`CSI > 4 ; n m`, `CSI > 4 m`): sets the level, 0
+/// with none.
+pub(super) fn modify_other_keys(vt: &mut Vt, p: &Params<'_>) -> bool {
+    if p.get(0, 0) != 4 {
+        return false;
+    }
+    vt.other_keys = u8::try_from(p.values().nth(1).unwrap_or(0)).unwrap_or(u8::MAX);
+    true
 }
 
-/// Sequences understood that do not change the screen: the kitty
-/// keyboard flags and queries.
+/// The kitty keyboard flags: push (`CSI > flags u`), pop (`CSI < n u`)
+/// and set (`CSI = flags ; mode u`: 1 replaces, 2 adds, 3 removes).
+pub(super) fn kitty(vt: &mut Vt, p: &Params<'_>) -> bool {
+    let flags = u8::try_from(p.values().next().unwrap_or(0)).unwrap_or(u8::MAX);
+    match p.marker {
+        b'>' => vt.keyboard.push(flags),
+        b'<' => {
+            let n = usize::from(p.get(0, 1)).min(vt.keyboard.len());
+            vt.keyboard.truncate(vt.keyboard.len() - n);
+        }
+        _ => {
+            let now = vt.keyboard_flags();
+            let set = match p.get(1, 1) {
+                2 => now | flags,
+                3 => now & !flags,
+                _ => flags,
+            };
+            let _ = vt.keyboard.pop();
+            vt.keyboard.push(set);
+        }
+    }
+    true
+}
+
+/// Sequences understood that change nothing: queries.
 pub(super) fn accept(_: &mut Vt, _: &Params<'_>) -> bool {
     true
 }

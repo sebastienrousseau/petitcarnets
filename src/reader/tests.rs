@@ -10,6 +10,7 @@ fn collect() -> (InputSink, mpsc::Receiver<Input>) {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)] // calls libc through src/sys.rs
 fn keys_and_signals_arrive_and_a_zero_byte_stops_the_reader() {
     let keys = sys::Pipe::new().unwrap();
     let wake = sys::Pipe::new().unwrap();
@@ -29,6 +30,7 @@ fn keys_and_signals_arrive_and_a_zero_byte_stops_the_reader() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)] // calls libc through src/sys.rs
 fn a_lone_escape_arrives_after_the_timeout() {
     let keys = sys::Pipe::new().unwrap();
     let wake = sys::Pipe::new().unwrap();
@@ -43,6 +45,7 @@ fn a_lone_escape_arrives_after_the_timeout() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)] // calls libc through src/sys.rs
 fn the_reader_stops_at_end_of_input() {
     let wake = sys::Pipe::new().unwrap();
     let mut keys = sys::Pipe::new().unwrap();
@@ -53,6 +56,7 @@ fn the_reader_stops_at_end_of_input() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)] // calls libc through src/sys.rs
 fn a_paused_reader_leaves_the_terminal_alone_until_it_resumes() {
     let keys = sys::Pipe::new().unwrap();
     let wake = sys::Pipe::new().unwrap();
@@ -89,6 +93,7 @@ fn a_paused_reader_leaves_the_terminal_alone_until_it_resumes() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)] // calls libc through src/sys.rs
 fn stop_and_continue_signals_arrive_as_input() {
     let keys = sys::Pipe::new().unwrap();
     let wake = sys::Pipe::new().unwrap();

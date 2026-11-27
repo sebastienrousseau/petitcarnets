@@ -1,0 +1,12 @@
+size 80x8, main screen
+cursor 25,6 hidden, style 0
+modes 2004
+keyboard flags 3, modifyOtherKeys 2
+--------------------------------------------------------------------------------
+
+  Press and release keys; esc or ctrl+c quits (this terminal reports releases).
+
+  press   "a" (a)
+  release "a" (a)
+  press   "A" (shift+a)
+  press   "a" (a, repeat)

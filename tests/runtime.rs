@@ -1,8 +1,10 @@
-//! The runtime, driven headless through `TestBackend`.
+//! The runtime, driven headless: through `TestProgram` on a virtual
+//! clock, and a few runs through `TestBackend` on the real one, which
+//! is public too.
 
 use petitcarnets as tea;
 use std::time::Duration;
-use tea::testing::TestBackend;
+use tea::testing::{TestBackend, TestProgram, TestTerminal};
 use tea::{Input, Key, KeyCode, Size};
 
 /// Records what it saw; its commands are chosen by key.
@@ -98,7 +100,8 @@ impl Probe {
     }
 }
 
-fn run(keys: impl IntoIterator<Item = Key>) -> (Probe, String) {
+/// Runs a probe on `TestBackend` with `keys`, on the real clock.
+fn run_backend(keys: impl IntoIterator<Item = Key>) -> (Probe, String) {
     let backend = TestBackend::new(40, 10).keys(keys);
     let screen = backend.screen();
     let model = tea::Program::new(Probe::default())
@@ -107,8 +110,34 @@ fn run(keys: impl IntoIterator<Item = Key>) -> (Probe, String) {
     (model, screen.text())
 }
 
+/// Runs a probe with `keys`, then lets it finish; the model, and the
+/// text written without escape sequences.
+fn run(keys: impl IntoIterator<Item = Key>) -> (Probe, String) {
+    let mut test = TestProgram::new(Probe::default(), 40, 10);
+    for key in keys {
+        test.press(key);
+    }
+    assert!(test.wait_finished(Duration::from_secs(1)), "it ends");
+    let written = tea::style::strip_ansi(&String::from_utf8_lossy(test.output()));
+    (test.into_result().expect("the program runs"), written)
+}
+
+/// Runs a probe with `inputs` until it ends.
 fn run_inputs(inputs: impl IntoIterator<Item = Input>) -> Result<Probe, tea::Error> {
-    tea::Program::new(Probe::default()).run_with(TestBackend::new(40, 10).inputs(inputs))
+    let mut test = TestProgram::new(Probe::default(), 40, 10);
+    for input in inputs {
+        test.input(input);
+    }
+    test.into_result()
+}
+
+#[test]
+fn a_test_backend_plays_keys_on_the_real_clock() {
+    let (up, down) = (Key::new(KeyCode::Up), Key::new(KeyCode::Down));
+    let (model, screen) = run_backend([up.clone(), up.clone(), down, up, Key::char('q')]);
+    assert_eq!(model.count, 2);
+    assert!(screen.trim_start().starts_with("count 0"), "{screen}");
+    assert!(screen.trim_end().ends_with("1212"), "{screen}");
 }
 
 #[test]
@@ -195,15 +224,11 @@ fn a_sender_delivers_messages_and_can_quit_or_kill() {
     let model = program.run_with(TestBackend::new(10, 3)).unwrap();
     assert_eq!(model.messages, ["before start"]);
 
-    let program = tea::Program::new(Probe::default());
-    let sender = program.sender();
-    let killer = std::thread::spawn(move || {
-        std::thread::sleep(ms(20));
-        sender.kill();
-    });
-    let result = program.run_with(TestBackend::new(10, 3));
-    killer.join().unwrap();
-    assert!(matches!(result, Err(tea::Error::Killed)));
+    let mut test = TestProgram::new(Probe::default(), 10, 3);
+    let sender = test.sender();
+    std::thread::spawn(move || sender.kill()).join().unwrap();
+    test.advance(Duration::ZERO);
+    assert!(matches!(test.into_result(), Err(tea::Error::Killed)));
 }
 
 #[test]
@@ -226,31 +251,43 @@ fn init_runs_its_command() {
             tea::View::default()
         }
     }
-    let model = tea::Program::new(Starter::default())
-        .run_with(TestBackend::new(10, 3))
-        .unwrap();
-    assert!(model.0);
+    let mut test = TestProgram::new(Starter::default(), 10, 3);
+    test.advance(ms(4));
+    assert!(!test.model().0);
+    test.advance(ms(1));
+    assert!(test.final_model().0);
 }
 
-/// Runs a fresh probe on raw terminal bytes, then `q`.
+/// Runs a fresh probe on raw terminal bytes, one read each, then `q`;
+/// the output, minus autowrap turned off first and on last.
 fn run_bytes(view: tea::View, chunks: &[&[u8]]) -> (Probe, String) {
-    let mut backend = TestBackend::new(40, 10);
-    for chunk in chunks {
-        backend = backend.bytes(chunk);
-    }
-    let backend = backend.keys([Key::char('q')]);
-    let screen = backend.screen();
     let probe = Probe {
         view,
         ..Probe::default()
     };
-    let model = tea::Program::new(probe).run_with(backend).unwrap();
-    let raw = screen.raw();
+    let mut test = TestProgram::new(probe, 40, 10);
+    for chunk in chunks {
+        test.bytes(chunk);
+    }
+    test.advance(ms(50));
+    test.press(Key::char('q'));
+    let raw = String::from_utf8_lossy(test.final_output()).into_owned();
     // Autowrap goes off before anything else, and back on at the very end.
     let raw = raw.strip_prefix("\x1b[?7l").expect("autowrap off first");
     let raw = raw.strip_suffix("\x1b[?7h").expect("autowrap on last");
     let raw = raw.to_string();
-    (model, raw)
+    (test.final_model(), raw)
+}
+
+#[test]
+fn a_test_backend_sends_bytes_through_the_decoder() {
+    let backend = TestBackend::new(40, 10)
+        .bytes(b"\x1b[A\x1b[Ax\x03")
+        .keys([Key::char('q')]);
+    let model = tea::Program::new(Probe::default())
+        .run_with(backend)
+        .unwrap();
+    assert_eq!(model.keys, ["up", "up", "x", "ctrl+c", "q"]);
 }
 
 #[test]
@@ -366,12 +403,9 @@ fn changed_keyboard_flags_update_the_entry_in_place() {
             })
         }
     }
-    let backend = TestBackend::new(10, 3).keys([Key::char('x'), Key::char('q')]);
-    let screen = backend.screen();
-    let _ = tea::Program::new(Flags::default())
-        .run_with(backend)
-        .unwrap();
-    let raw = screen.raw();
+    let mut test = TestProgram::new(Flags::default(), 10, 3);
+    test.type_text("xq");
+    let raw = String::from_utf8_lossy(test.final_output()).into_owned();
     assert_eq!(raw.matches("\x1b[>1u").count(), 1, "{raw:?}");
     assert!(raw.contains("\x1b[>4;2m\x1b[=5;1u"), "{raw:?}");
     assert_eq!(raw.matches("\x1b[<u").count(), 1, "popped once, at the end");
@@ -420,30 +454,24 @@ impl tea::Model for Printer {
     }
 }
 
-fn run_printer(backend: TestBackend) -> String {
-    let screen = backend.screen();
-    let _ = tea::Program::new(Printer::default())
-        .run_with(backend)
-        .unwrap();
-    screen.raw()
+/// Runs a printer in a `columns` by 5 terminal with `keys`; all it
+/// wrote.
+fn run_printer(columns: u16, keys: &str) -> String {
+    let mut test = TestProgram::new(Printer::default(), columns, 5);
+    test.type_text(keys);
+    String::from_utf8_lossy(test.final_output()).into_owned()
 }
 
 #[test]
 fn views_are_inline_by_default() {
-    let raw = run_printer(TestBackend::new(20, 5).keys([Key::char('q')]));
+    let raw = run_printer(20, "q");
     assert!(!raw.contains("1049"), "{raw:?}");
     assert!(raw.contains("frame 1"), "{raw:?}");
 }
 
 #[test]
 fn the_view_switches_the_alternate_screen_on_and_off() {
-    let keys = [
-        Key::char('a'),
-        Key::char('x'),
-        Key::char('a'),
-        Key::char('q'),
-    ];
-    let raw = run_printer(TestBackend::new(20, 5).keys(keys));
+    let raw = run_printer(20, "axaq");
     let on = raw.find("\x1b[?1049h").expect("entered");
     let off = raw.find("\x1b[?1049l").expect("left");
     assert!(on < off);
@@ -453,14 +481,14 @@ fn the_view_switches_the_alternate_screen_on_and_off() {
 
 #[test]
 fn the_alternate_screen_is_left_at_the_end() {
-    let raw = run_printer(TestBackend::new(20, 5).keys([Key::char('a'), Key::char('q')]));
+    let raw = run_printer(20, "aq");
     let off = raw.rfind("\x1b[?1049l").expect("left at the end");
     assert!(raw[off..].ends_with("\x1b[?7h"), "{raw:?}");
 }
 
 #[test]
 fn println_comes_after_the_frame_before_it_and_before_quitting() {
-    let raw = run_printer(TestBackend::new(30, 5).keys([Key::char('p'), Key::char('q')]));
+    let raw = run_printer(30, "pq");
     let frame = raw.find("frame 1").expect("first frame");
     let printed = raw.find("printed 2").expect("printed");
     let bye = raw.find("bye").expect("bye");
@@ -471,64 +499,60 @@ fn println_comes_after_the_frame_before_it_and_before_quitting() {
 
 #[test]
 fn raw_bytes_are_written_before_the_terminal_is_restored() {
-    let raw = run_printer(TestBackend::new(20, 5).keys([Key::char('r'), Key::char('q')]));
+    let raw = run_printer(20, "rq");
     let at = raw.find("<RAW>").expect("written");
     assert!(at < raw.rfind("\x1b[?7h").unwrap());
 }
 
 #[test]
 fn clear_screen_clears_and_writes_the_modes_again() {
-    let raw = run_printer(TestBackend::new(20, 5).keys([Key::char('c'), Key::char('q')]));
+    let raw = run_printer(20, "cq");
     let clear = raw.find("\x1b[H\x1b[2J").expect("cleared");
     assert_eq!(raw.matches("\x1b[?2004h").count(), 2, "{raw:?}");
     assert!(raw.rfind("\x1b[?2004h").unwrap() < clear);
 }
 
-/// Runs a printer that ticks `n` times, 1 ms apart, at `fps`, with
-/// synchronized output on so frames can be counted, and `keys` keys
-/// 20 ms apart.
-fn ticking(n: u32, fps: u32, keys: usize) -> (String, Printer) {
-    let mut backend = TestBackend::new(30, 5).inputs([Input::ModeReport {
+/// Runs a printer at `fps` that ticks `n` times, 1 ms apart, with
+/// synchronized output on so frames can be counted, then gets `keys`
+/// keys 20 ms apart and `q`; all it wrote, and the test.
+fn ticking(n: u32, fps: u32, keys: usize) -> (String, TestProgram<Printer>) {
+    let program = tea::Program::new(Printer::default()).with_fps(fps);
+    let mut test = TestProgram::with_terminal(program, TestTerminal::new(30, 5));
+    test.input(Input::ModeReport {
         mode: tea::ReportedMode::Dec(2026),
         value: tea::ModeSetting::Reset,
-    }]);
-    if keys > 0 {
-        backend = backend
-            .gap(ms(20))
-            .keys(std::iter::repeat_n(Key::char('x'), keys))
-            .keys([Key::char('q')]);
-    }
-    let screen = backend.screen();
-    let program = tea::Program::new(Printer::default()).with_fps(fps);
+    });
     if n > 0 {
-        program.sender().send(n);
+        test.send(n);
+        test.advance(ms(u64::from(n)));
     }
-    let model = program.run_with(backend).unwrap();
-    (screen.raw(), model)
+    for _ in 0..keys {
+        test.advance(ms(20));
+        test.press(Key::char('x'));
+    }
+    test.press(Key::char('q'));
+    let raw = String::from_utf8_lossy(test.final_output()).into_owned();
+    (raw, test)
 }
 
 #[test]
 fn with_fps_limits_how_often_frames_are_drawn() {
-    let started = std::time::Instant::now();
-    let (raw, model) = ticking(300, 10, 0);
-    let tenths = usize::try_from(started.elapsed().as_millis() / 100).unwrap();
+    let (raw, test) = ticking(300, 10, 0);
+    assert_eq!(test.elapsed(), ms(300));
     let frames = raw.matches("\x1b[?2026h").count();
-    assert!(model.ticks >= 300);
-    assert!(
-        frames <= tenths + 3,
-        "{frames} frames in {tenths} tenths at 10 fps"
-    );
-    assert!(frames >= 2, "{frames}");
+    // One frame each 100 ms of the 300 the ticks take; the last tick
+    // quits, with its frame.
+    assert_eq!(frames, 3, "{raw:?}");
+    assert_eq!(test.final_model().ticks, 300);
 }
 
 #[test]
 fn a_frame_after_a_key_is_drawn_at_once() {
-    // At 1 fps, five keys 20 ms apart still each get a frame at once.
-    let started = std::time::Instant::now();
-    let (raw, _) = ticking(0, 1, 5);
-    let frames = raw.matches("\x1b[?2026h").count();
-    assert!(started.elapsed() < ms(900), "never held back for a second");
-    assert!(frames >= 6, "{frames} frames: {raw:?}");
+    // At 1 fps, five keys 20 ms apart still each get a frame at once,
+    // and so does the q that ends the run.
+    let (raw, test) = ticking(0, 1, 5);
+    assert_eq!(test.elapsed(), ms(100), "never held back for a second");
+    assert_eq!(raw.matches("\x1b[?2026h").count(), 6, "{raw:?}");
 }
 
 /// Shows one line, without a trailing newline, until `x` empties it.
@@ -553,12 +577,9 @@ impl tea::Model for OneLine {
 }
 
 fn run_one_line(keys: &str) -> String {
-    let backend = TestBackend::new(20, 5).keys(keys.chars().map(Key::char));
-    let screen = backend.screen();
-    let _ = tea::Program::new(OneLine::default())
-        .run_with(backend)
-        .unwrap();
-    screen.raw()
+    let mut test = TestProgram::new(OneLine::default(), 20, 5);
+    test.type_text(keys);
+    String::from_utf8_lossy(test.final_output()).into_owned()
 }
 
 #[test]

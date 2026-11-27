@@ -9,8 +9,8 @@ use petitcarnets as tea;
 use std::process::ExitCode;
 
 #[derive(Default)]
-struct Lifecycle {
-    pastes: Vec<String>,
+pub(crate) struct Lifecycle {
+    pub(crate) pastes: Vec<String>,
 }
 
 impl tea::Model for Lifecycle {
@@ -41,7 +41,8 @@ impl tea::Model for Lifecycle {
     }
 }
 
-fn main() -> ExitCode {
+// `pub(crate)`: `tests/golden.rs` includes this file for its model.
+pub(crate) fn main() -> ExitCode {
     match tea::Program::new(Lifecycle::default()).run() {
         Ok(model) => {
             println!("quit");

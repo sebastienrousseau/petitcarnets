@@ -48,6 +48,7 @@
 mod ansi;
 mod backend;
 mod base64;
+mod clock;
 mod cmd;
 mod color;
 mod environ;

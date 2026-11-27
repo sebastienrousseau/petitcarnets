@@ -7,9 +7,9 @@ use petitcarnets as tea;
 use tea::{Mouse, MouseMode, Msg};
 
 #[derive(Default)]
-struct Mice {
+pub(crate) struct Mice {
     events: Vec<String>,
-    last_click: Option<String>,
+    pub(crate) last_click: Option<String>,
 }
 
 /// An event as `(X: 9, Y: 4) left`.
@@ -53,7 +53,8 @@ impl tea::Model for Mice {
     }
 }
 
-fn main() -> Result<(), tea::Error> {
+// `pub(crate)`: `tests/golden.rs` includes this file for its model.
+pub(crate) fn main() -> Result<(), tea::Error> {
     let mice = tea::Program::new(Mice::default()).run()?;
     match mice.last_click {
         Some(click) => println!("Last click: {click}"),

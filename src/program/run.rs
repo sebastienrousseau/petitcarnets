@@ -6,6 +6,7 @@ mod translate;
 
 use super::End;
 use crate::backend::Backend;
+use crate::clock::{Clock, Now};
 use crate::cmd::{Handover, Output};
 use crate::color::ColorProfile;
 use crate::exec::{Event, Executor, Item};
@@ -37,11 +38,12 @@ pub(super) struct Settings {
 }
 
 /// The loop's state besides the model.
-pub(super) struct Loop<'m, M> {
+pub(super) struct Loop<M, C> {
     pub(super) exec: Executor<M>,
     renderer: Renderer,
-    modes: &'m mut Modes,
+    pub(super) modes: Modes,
     settings: Settings,
+    clock: C,
     dirty: bool,
     urgent: bool,
     last_frame: Option<Instant>,
@@ -54,14 +56,15 @@ pub(super) struct Loop<'m, M> {
     held_back: Vec<Output>,
 }
 
-impl<'m, A: Send + 'static> Loop<'m, A> {
-    /// A loop set up as `settings` say.
+impl<A: Send + 'static, C: Clock> Loop<A, C> {
+    /// A loop set up as `settings` say, on `clock`.
     pub(super) fn new(
         exec: Executor<A>,
         mut renderer: Renderer,
-        modes: &'m mut Modes,
         settings: Settings,
+        clock: C,
     ) -> Self {
+        let mut modes = Modes::default();
         renderer.set_color_profile(settings.profile);
         modes.set_color_profile(settings.profile);
         Self {
@@ -69,6 +72,7 @@ impl<'m, A: Send + 'static> Loop<'m, A> {
             renderer,
             modes,
             settings,
+            clock,
             dirty: true,
             urgent: false,
             last_frame: None,
@@ -77,6 +81,11 @@ impl<'m, A: Send + 'static> Loop<'m, A> {
             released: false,
             held_back: Vec::new(),
         }
+    }
+
+    /// The time on the loop's clock.
+    pub(super) fn now(&self) -> Now {
+        self.clock.now()
     }
 
     /// Asks the terminal about its output modes, if it is one and `ask`
@@ -93,7 +102,7 @@ impl<'m, A: Send + 'static> Loop<'m, A> {
         let out = backend.output();
         out.write_all(bytes)?;
         out.flush()?;
-        self.queried = Some(Instant::now());
+        self.queried = Some(self.clock.now().at);
         Ok(())
     }
 
@@ -105,16 +114,41 @@ impl<'m, A: Send + 'static> Loop<'m, A> {
         backend: &mut impl Backend,
     ) -> Result<End, Error> {
         loop {
-            if let Some(end) = self.update(model, inbox, backend)? {
-                return self.end(end, model, inbox, backend);
+            if let Some(end) = self.step(model, inbox, backend)? {
+                return Ok(end);
             }
-            self.frame(model, backend)?;
             self.wait(inbox);
         }
     }
 
-    /// The last frame (unless killed or panicked), replies still on
-    /// their way, and the renderer's goodbye.
+    /// Updates the model with everything ready and draws, if the frame
+    /// rate allows; how the program ended, if it did, after its last
+    /// frame.
+    pub(super) fn step<M: Model<Msg = A>>(
+        &mut self,
+        model: &mut M,
+        inbox: &Receiver<Event<A>>,
+        backend: &mut impl Backend,
+    ) -> Result<Option<End>, Error> {
+        if let Some(end) = self.update(model, inbox, backend)? {
+            return self.end(end, model, inbox, backend).map(Some);
+        }
+        self.frame(model, backend)?;
+        Ok(None)
+    }
+
+    /// When the loop next has something to do with no event: the
+    /// earliest timer, or a held back frame.
+    pub(super) fn next_wake(&self) -> Option<Instant> {
+        [self.exec.next_deadline(), self.frame_due]
+            .into_iter()
+            .flatten()
+            .min()
+    }
+
+    /// The terminal taken back if it was handed over, with the output
+    /// that waited unless killed or panicked; the last frame (likewise),
+    /// replies still on their way, and the renderer's goodbye.
     fn end<M: Model<Msg = A>>(
         &mut self,
         end: End,
@@ -122,10 +156,11 @@ impl<'m, A: Send + 'static> Loop<'m, A> {
         inbox: &Receiver<Event<A>>,
         backend: &mut impl Backend,
     ) -> Result<End, Error> {
+        let graceful = matches!(end, End::Quit | End::Interrupt);
         if self.released {
-            self.take_back(backend)?;
+            self.take_back_at_end(graceful, model, backend)?;
         }
-        if matches!(end, End::Quit | End::Interrupt) {
+        if graceful {
             self.draw(&model.view(), backend)?;
             self.drain(inbox, backend, false)?;
             self.renderer.finish(backend.output())?;
@@ -134,6 +169,21 @@ impl<'m, A: Send + 'static> Loop<'m, A> {
             self.renderer.abandon(backend.output())?;
         }
         Ok(end)
+    }
+
+    /// Takes the terminal back for the end: with the output that waited
+    /// if the end is `graceful`, without it otherwise.
+    fn take_back_at_end<M: Model<Msg = A>>(
+        &mut self,
+        graceful: bool,
+        model: &M,
+        backend: &mut impl Backend,
+    ) -> Result<(), Error> {
+        if graceful {
+            self.restore(model, backend)
+        } else {
+            self.take_back(backend)
+        }
     }
 
     /// Updates the model with everything ready, in order, and applies
@@ -171,7 +221,7 @@ impl<'m, A: Send + 'static> Loop<'m, A> {
             _ => {}
         }
         let cmd: Cmd<A> = model.update(msg);
-        self.exec.run(cmd, Instant::now());
+        self.exec.run(cmd, self.clock.now());
         self.dirty = true;
         Ok(())
     }
@@ -278,19 +328,22 @@ impl<'m, A: Send + 'static> Loop<'m, A> {
 
     /// Draws if something changed and the frame rate allows: at once
     /// after input, else no sooner than one interval after the last.
-    /// Nothing is drawn while the terminal is handed over.
+    /// Nothing is drawn while the terminal is handed over, and a frame
+    /// held back then is forgotten (taking the terminal back draws one at
+    /// once), so it cannot wake the loop over and over.
     fn frame<M: Model<Msg = A>>(
         &mut self,
         model: &M,
         backend: &mut impl Backend,
     ) -> Result<(), Error> {
         if !self.dirty || self.released {
+            self.frame_due = None;
             return Ok(());
         }
         if !self.urgent {
             if let Some(last) = self.last_frame {
                 let due = last + self.settings.interval;
-                if Instant::now() < due {
+                if self.clock.now().at < due {
                     self.frame_due = Some(due);
                     return Ok(());
                 }
@@ -309,31 +362,19 @@ impl<'m, A: Send + 'static> Loop<'m, A> {
         self.renderer.render(view, backend.output())?;
         self.dirty = false;
         self.urgent = false;
-        self.last_frame = Some(Instant::now());
+        self.last_frame = Some(self.clock.now().at);
         self.frame_due = None;
         Ok(())
     }
 
     /// Sleeps until an event arrives, a timer is due or a held back
     /// frame may be drawn, then takes in everything that is ready.
-    fn wait(&mut self, inbox: &Receiver<Event<A>>) {
-        let deadline = [self.exec.next_deadline(), self.frame_due]
-            .into_iter()
-            .flatten()
-            .min();
-        let first = match deadline {
-            None => inbox.recv().ok(),
-            Some(at) => inbox
-                .recv_timeout(at.saturating_duration_since(Instant::now()))
-                .ok(),
-        };
-        for event in first
-            .into_iter()
-            .chain(std::iter::from_fn(|| inbox.try_recv().ok()))
-        {
+    pub(super) fn wait(&mut self, inbox: &Receiver<Event<A>>) {
+        let events = self.clock.wait(inbox, self.next_wake(), self.exec.tasks());
+        for event in events {
             self.take(event);
         }
-        self.exec.fire_due(Instant::now());
+        self.exec.fire_due(self.clock.now());
     }
 
     /// Queues what one event means for the model. Keys, mouse events and
@@ -349,8 +390,11 @@ impl<'m, A: Send + 'static> Loop<'m, A> {
                     translate::input_item(input)
                 }
             }
-            Event::Done(parent, msg) => return self.exec.task_done(parent, msg, Instant::now()),
-            Event::Panic(message) => Item::Panic(message),
+            Event::Done(task, msg) => return self.exec.task_done(task, msg, self.clock.now()),
+            Event::Panic(_, message) => {
+                self.exec.task_panicked();
+                Item::Panic(message)
+            }
             Event::Send(msg) => Item::Msg(Msg::App(msg)),
             Event::Quit => Item::Quit,
             Event::Kill => Item::Kill,

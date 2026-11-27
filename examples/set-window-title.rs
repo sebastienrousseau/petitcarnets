@@ -8,7 +8,7 @@ use petitcarnets as tea;
 
 const WINDOW_TITLE: &str = "Hello, petitcarnets";
 
-struct Titled;
+pub(crate) struct Titled;
 
 impl tea::Model for Titled {
     type Msg = ();
@@ -29,7 +29,8 @@ impl tea::Model for Titled {
     }
 }
 
-fn main() -> Result<(), tea::Error> {
+// `pub(crate)`: `tests/golden.rs` includes this file for its model.
+pub(crate) fn main() -> Result<(), tea::Error> {
     let _ = tea::Program::new(Titled).run()?;
     Ok(())
 }

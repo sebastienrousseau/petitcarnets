@@ -1,4 +1,5 @@
-//! A spinner that ticks while a slow task runs on another thread.
+//! A spinner that ticks while slow work goes on: a two-second wait, then
+//! 20! computed on another thread.
 //!
 //! `cargo run --example spinner`
 
@@ -8,14 +9,15 @@ use tea::style::{Color, Style};
 
 const FRAMES: [&str; 8] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"];
 
-enum Msg {
+pub(crate) enum Msg {
     Tick,
+    Compute,
     Loaded(u64),
 }
 
-struct Loader {
-    frame: usize,
-    result: Option<u64>,
+pub(crate) struct Loader {
+    pub(crate) frame: usize,
+    pub(crate) result: Option<u64>,
 }
 
 fn tick() -> tea::Cmd<Msg> {
@@ -26,10 +28,7 @@ impl tea::Model for Loader {
     type Msg = Msg;
 
     fn init(&mut self) -> tea::Cmd<Msg> {
-        let slow = tea::Cmd::task(|| {
-            std::thread::sleep(Duration::from_secs(2));
-            Msg::Loaded((1..=20).product())
-        });
+        let slow = tea::tick(Duration::from_secs(2), |_| Msg::Compute);
         tea::batch([tick(), slow])
     }
 
@@ -39,6 +38,7 @@ impl tea::Model for Loader {
                 self.frame = (self.frame + 1) % FRAMES.len();
                 tick()
             }
+            tea::Msg::App(Msg::Compute) => tea::Cmd::task(|| Msg::Loaded((1..=20).product())),
             tea::Msg::App(Msg::Loaded(n)) => {
                 self.result = Some(n);
                 tea::Cmd::none()
@@ -66,7 +66,8 @@ impl tea::Model for Loader {
     }
 }
 
-fn main() -> Result<(), tea::Error> {
+// `pub(crate)`: `tests/golden.rs` includes this file for its model.
+pub(crate) fn main() -> Result<(), tea::Error> {
     let _ = tea::Program::new(Loader {
         frame: 0,
         result: None,

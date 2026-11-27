@@ -1,11 +1,10 @@
 //! Whole runs drawn into the test terminal emulator: what the screen
 //! shows, and how the terminal is left.
 
-use crate::backend::TestBackend;
 use crate::key::Key;
-use crate::testing::vt::Vt;
+use crate::testing::{TestProgram, Vt};
 use crate::view::{Cursor, CursorShape, View};
-use crate::{Cmd, Model, Msg, Program, println, quit, sequence};
+use crate::{Cmd, Model, Msg, println, quit, sequence};
 
 /// Keys choose the next view; `q` prints and quits.
 #[derive(Debug, Default)]
@@ -44,20 +43,20 @@ impl Model for Scene {
     }
 }
 
-/// Runs a scene from `content` with `keys`, then `q`, and plays what it
-/// wrote into a 20 by 5 terminal.
+/// Runs a scene from `content` with `keys`, then `q`, in a 20 by 5
+/// terminal: the screen at the end, and all that was written.
 fn play(content: &str, keys: &str) -> (Vt, String) {
-    let keys = keys.chars().map(Key::char).chain([Key::char('q')]);
-    let backend = TestBackend::new(20, 5).keys(keys);
-    let screen = backend.screen();
     let scene = Scene {
         view: View::new(content),
     };
-    let _ = Program::new(scene).run_with(backend).unwrap();
-    let raw = screen.raw();
+    let mut test = TestProgram::new(scene, 20, 5);
+    test.type_text(keys);
+    test.press(Key::char('q'));
+    let raw = String::from_utf8_lossy(test.final_output()).into_owned();
     let mut vt = Vt::new(20, 5);
     vt.feed(raw.as_bytes());
     assert!(vt.unknown().is_empty(), "{:?}", vt.unknown());
+    assert_eq!(vt.snapshot(), test.final_screen().snapshot());
     (vt, raw)
 }
 
@@ -190,11 +189,11 @@ impl crate::ExecCommand for Noop {
 /// Runs [`Damaged`] with `keys`, then `m` and `q`; the terminal as it
 /// was at the mark, and all that was written.
 fn damage(keys: &str) -> (Vt, String) {
-    let keys = keys.chars().chain("mq".chars()).map(Key::char);
-    let backend = TestBackend::new(20, 5).keys(keys);
-    let screen = backend.screen();
-    let _ = Program::new(Damaged::default()).run_with(backend).unwrap();
-    let raw = screen.raw();
+    let mut test = TestProgram::new(Damaged::default(), 20, 5);
+    test.type_text(keys);
+    test.press(Key::char('m'));
+    test.press(Key::char('q'));
+    let raw = String::from_utf8_lossy(test.final_output()).into_owned();
     let mark = raw.find("<MARK>").expect("marked");
     let mut vt = Vt::new(20, 5);
     vt.feed(&raw.as_bytes()[..mark]);
@@ -254,4 +253,11 @@ fn queries_are_gated_as_bubble_tea_gates_them() {
         ("SSH_TTY", "x"),
         ("TERM", "xterm-kitty")
     ])));
+}
+
+#[test]
+fn a_program_and_its_sender_describe_themselves_briefly() {
+    let program = crate::Program::new(Scene::default());
+    assert_eq!(format!("{program:?}"), "Program { .. }");
+    assert_eq!(format!("{:?}", program.sender()), "Sender(..)");
 }

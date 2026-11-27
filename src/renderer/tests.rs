@@ -3,7 +3,7 @@
 //! out as intended, cell for cell (text, width, style, link).
 
 use super::*;
-use crate::testing::vt::Vt;
+use crate::testing::Vt;
 use crate::view::Cursor;
 
 /// A renderer and the terminal it draws on.
@@ -70,7 +70,7 @@ impl Rig {
                 .and_then(|i| frame.rows.get(i))
                 .map_or_else(|| layout::Row::blank(w), Clone::clone);
             for (x, cell) in want.cells.iter().enumerate() {
-                let got = self.vt.cell(to16(x), to16(y));
+                let got = self.vt.raw_cell(to16(x), to16(y));
                 assert_eq!(got, cell, "cell {x},{y}\nscreen:\n{}", self.vt.text());
             }
         }
@@ -209,7 +209,7 @@ fn combining_marks_stay_with_their_letter() {
     let mut rig = Rig::alt(20, 3);
     let _ = a_then_b(&mut rig, "cafe\u{301}", "cafe\u{301}s");
     let _ = a_then_b(&mut rig, "e\u{301}e\u{300}", "e\u{300}e\u{301}");
-    assert_eq!(rig.vt.cell(0, 0).width, 1);
+    assert_eq!(rig.vt.raw_cell(0, 0).width, 1);
 }
 
 #[test]
@@ -239,8 +239,8 @@ fn tabs_expand_to_every_eight_columns() {
     let mut rig = Rig::alt(30, 3);
     let out = a_then_b(&mut rig, "a\tb\n\tc", "ab\tc\nabcdefgh\ti");
     assert!(!out.contains('\t'));
-    assert_eq!(rig.vt.cell(8, 0).glyph, cell::Glyph::Char('c'));
-    assert_eq!(rig.vt.cell(16, 1).glyph, cell::Glyph::Char('i'));
+    assert_eq!(rig.vt.raw_cell(8, 0).glyph, cell::Glyph::Char('c'));
+    assert_eq!(rig.vt.raw_cell(16, 1).glyph, cell::Glyph::Char('i'));
 }
 
 #[test]
@@ -321,7 +321,7 @@ fn println_keeps_styles_and_ends_them() {
     let out = rig.print("\x1b[1mbold\tx");
     assert!(out.contains("bold    x"), "tabs expanded: {out:?}");
     assert_eq!(rig.vt.pen(), cell::Pen::DEFAULT);
-    assert_eq!(rig.vt.cell(0, 0).pen.attrs, cell::attr::BOLD);
+    assert_eq!(rig.vt.raw_cell(0, 0).pen.attrs, cell::attr::BOLD);
 }
 
 #[test]

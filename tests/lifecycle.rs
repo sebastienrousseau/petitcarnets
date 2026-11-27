@@ -1,11 +1,12 @@
 //! Exec, suspend, release, repaint, the colour profile, and terminal
-//! queries, driven headless through `TestBackend`.
+//! queries, driven headless through `TestProgram`, and a few runs
+//! through `TestBackend`.
 
 use petitcarnets as tea;
 use std::io;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
-use tea::testing::TestBackend;
+use std::time::Duration;
+use tea::testing::{TestBackend, TestProgram, TestTerminal};
 use tea::{ColorProfile, Input, Key, Msg};
 
 /// Records every message but sizes, as text; keys choose commands.
@@ -26,6 +27,13 @@ fn command(key: &str) -> tea::Cmd<String> {
             std::process::Command::new("/nonexistent/petitcarnets-child"),
             |r| format!("exec failed {}", r.is_err()),
         ),
+        "g" => tea::exec_command(std::process::Command::new("false"), |r| match r {
+            Ok(()) => "false ok".to_string(),
+            Err(err) => format!("false failed: {err}"),
+        }),
+        "h" => tea::exec(std::process::Command::new("true"), |r| {
+            format!("true ok {}", r.is_ok_and(|status| status.success()))
+        }),
         "s" => tea::suspend(),
         "r" => tea::sequence([
             tea::release_terminal(),
@@ -82,15 +90,28 @@ fn keys(text: &str) -> Vec<Key> {
     text.chars().map(Key::char).collect()
 }
 
-fn run(backend: TestBackend) -> (Life, String) {
-    let screen = backend.screen();
-    let view = tea::View::default().with_mouse_mode(tea::MouseMode::CellMotion);
-    let life = Life {
-        view,
+/// A recorder with the mouse on.
+fn life() -> Life {
+    Life {
+        view: tea::View::default().with_mouse_mode(tea::MouseMode::CellMotion),
         ..Life::default()
-    };
-    let model = tea::Program::new(life).run_with(backend).unwrap();
-    (model, screen.raw())
+    }
+}
+
+/// Runs [`life`] in a `columns` by 4 terminal with `inputs`, until it
+/// ends; the model and all it wrote.
+fn run(columns: u16, inputs: impl IntoIterator<Item = Input>) -> (Life, String) {
+    let mut test = TestProgram::new(life(), columns, 4);
+    for input in inputs {
+        test.input(input);
+    }
+    let raw = String::from_utf8_lossy(test.final_output()).into_owned();
+    (test.final_model(), raw)
+}
+
+/// Key presses for `text`.
+fn typed(text: &str) -> Vec<Input> {
+    keys(text).into_iter().map(Input::KeyPress).collect()
 }
 
 /// The messages after the colour profile.
@@ -100,13 +121,14 @@ fn after_profile(seen: &[String]) -> Vec<&str> {
 
 #[test]
 fn the_colour_profile_comes_first() {
-    let (model, _) = run(TestBackend::new(20, 4).keys(keys("q")));
+    let backend = TestBackend::new(20, 4).keys(keys("q"));
+    let model = tea::Program::new(life()).run_with(backend).unwrap();
     assert_eq!(model.seen[0], "ColorProfile(TrueColor)");
 }
 
 #[test]
 fn an_exec_callback_is_the_next_message_and_modes_come_back() {
-    let (model, raw) = run(TestBackend::new(20, 4).keys(keys("exq")));
+    let (model, raw) = run(20, typed("exq"));
     assert_eq!(
         after_profile(&model.seen),
         ["key e", "exec true", "after exec", "key x", "key q"]
@@ -127,10 +149,25 @@ fn an_exec_callback_is_the_next_message_and_modes_come_back() {
 
 #[test]
 fn an_exec_that_cannot_start_reports_the_error() {
-    let (model, _) = run(TestBackend::new(20, 4).keys(keys("fq")));
+    let (model, _) = run(20, typed("fq"));
     assert_eq!(
         after_profile(&model.seen),
         ["key f", "exec failed true", "key q"]
+    );
+}
+
+#[test]
+fn exec_reports_how_the_child_exited() {
+    let (model, _) = run(20, typed("ghq"));
+    assert_eq!(
+        after_profile(&model.seen),
+        [
+            "key g",
+            "false failed: exit status: 1",
+            "key h",
+            "true ok true",
+            "key q"
+        ]
     );
 }
 
@@ -143,7 +180,7 @@ fn suspend_and_resume_from_the_key_the_command_and_signals() {
         Input::Continue,
         Input::KeyPress(Key::char('q')),
     ];
-    let (model, raw) = run(TestBackend::new(20, 4).inputs(inputs));
+    let (model, raw) = run(20, inputs);
     assert_eq!(
         after_profile(&model.seen),
         ["Resume", "key s", "Resume", "Resume", "Resume", "key q"],
@@ -158,17 +195,17 @@ fn suspend_and_resume_from_the_key_the_command_and_signals() {
 
 #[test]
 fn without_suspend_ctrl_z_is_a_key() {
-    let backend = TestBackend::new(20, 4).keys([Key::ctrl('z'), Key::char('q')]);
-    let model = tea::Program::new(Life::default())
-        .without_suspend()
-        .run_with(backend)
-        .unwrap();
+    let program = tea::Program::new(Life::default()).without_suspend();
+    let mut test = TestProgram::with_terminal(program, TestTerminal::new(20, 4));
+    test.press(Key::ctrl('z'));
+    test.press(Key::char('q'));
+    let model = test.final_model();
     assert_eq!(after_profile(&model.seen), ["key ctrl+z", "key q"]);
 }
 
 #[test]
 fn a_released_terminal_holds_output_back_until_it_is_restored() {
-    let (model, raw) = run(TestBackend::new(30, 4).keys(keys("rq")));
+    let (model, raw) = run(30, typed("rq"));
     assert_eq!(
         after_profile(&model.seen),
         ["key r", "while released", "key q"]
@@ -180,7 +217,7 @@ fn a_released_terminal_holds_output_back_until_it_is_restored() {
 
 #[test]
 fn repaint_turns_every_mode_off_and_on_and_draws_again() {
-    let (_, raw) = run(TestBackend::new(20, 4).keys(keys("pq")));
+    let (_, raw) = run(20, typed("pq"));
     let repaint = raw.find("\x1b[?1002l").expect("modes off");
     let after = &raw[repaint..];
     assert!(after.contains("\x1b[?1002h"), "{raw:?}");
@@ -215,10 +252,19 @@ impl tea::Model for Painter {
     }
 }
 
-fn paint(program: tea::Program<Painter>, backend: TestBackend) -> (Vec<ColorProfile>, String) {
-    let screen = backend.screen();
-    let model = program.run_with(backend).unwrap();
-    (model.0, screen.raw())
+/// Runs `program` in `terminal`, after `bytes` from the terminal, until
+/// q; the profiles heard and all it wrote.
+fn paint(
+    program: tea::Program<Painter>,
+    terminal: TestTerminal,
+    bytes: &[u8],
+) -> (Vec<ColorProfile>, String) {
+    let mut test = TestProgram::with_terminal(program, terminal);
+    test.bytes(bytes);
+    test.press(Key::char('q'));
+    test.advance(Duration::from_secs(1));
+    let raw = String::from_utf8_lossy(test.final_output()).into_owned();
+    (test.final_model().0, raw)
 }
 
 /// An RGB capability reply.
@@ -228,7 +274,7 @@ const RGB: &[u8] = b"\x1bP1+r524742\x1b\\";
 fn the_environment_sets_the_profile_and_no_color_keeps_only_attributes() {
     let env = [("TERM", "xterm-256color"), ("NO_COLOR", "1")];
     let program = tea::Program::new(Painter::default()).with_environment(env.into_iter().collect());
-    let (profiles, raw) = paint(program, TestBackend::new(20, 3).terminal().keys(keys("q")));
+    let (profiles, raw) = paint(program, TestTerminal::new(20, 3).terminal(), b"");
     assert_eq!(profiles, [ColorProfile::Ascii]);
     assert!(raw.contains("\x1b[1mgreen"), "bold kept: {raw:?}");
     assert!(!raw.contains("38;") && !raw.contains("[31m"), "{raw:?}");
@@ -239,11 +285,7 @@ fn the_environment_sets_the_profile_and_no_color_keeps_only_attributes() {
 fn a_256_colour_terminal_gets_palette_colours_until_it_says_rgb() {
     let env = [("TERM", "xterm-256color")];
     let program = tea::Program::new(Painter::default()).with_environment(env.into_iter().collect());
-    let backend = TestBackend::new(20, 3)
-        .terminal()
-        .bytes(RGB)
-        .keys(keys("q"));
-    let (profiles, raw) = paint(program, backend);
+    let (profiles, raw) = paint(program, TestTerminal::new(20, 3).terminal(), RGB);
     assert_eq!(profiles, [ColorProfile::Ansi256, ColorProfile::TrueColor]);
     assert!(raw.contains("38;5;"), "palette first: {raw:?}");
     assert!(
@@ -259,11 +301,7 @@ fn a_256_colour_terminal_gets_palette_colours_until_it_says_rgb() {
 #[test]
 fn a_forced_profile_is_kept_whatever_the_terminal_says() {
     let program = tea::Program::new(Painter::default()).with_color_profile(ColorProfile::Ansi);
-    let backend = TestBackend::new(20, 3)
-        .terminal()
-        .bytes(RGB)
-        .keys(keys("q"));
-    let (profiles, raw) = paint(program, backend);
+    let (profiles, raw) = paint(program, TestTerminal::new(20, 3).terminal(), RGB);
     assert_eq!(profiles, [ColorProfile::Ansi]);
     assert!(!raw.contains("38;2;") && !raw.contains("38;5;"), "{raw:?}");
     assert!(
@@ -367,13 +405,12 @@ fn every_reply_arrives_as_its_message() {
         b"\x1b[4;600;800t",
         b"\x1b[6;16;8t",
     ];
-    let mut backend = TestBackend::new(20, 3);
+    let mut test = TestProgram::new(Listener::default(), 20, 3);
     for reply in replies {
-        backend = backend.bytes(reply);
+        test.bytes(reply);
     }
-    let model = tea::Program::new(Listener::default())
-        .run_with(backend.keys(keys("q")))
-        .unwrap();
+    test.press(Key::char('q'));
+    let model = test.final_model();
     assert_eq!(
         model.0,
         [
@@ -414,9 +451,7 @@ fn request_window_size_sends_the_size_again() {
             tea::View::default()
         }
     }
-    let sizes = tea::Program::new(Sizes(0))
-        .run_with(TestBackend::new(20, 3))
-        .unwrap();
+    let sizes = TestProgram::new(Sizes(0), 20, 3).final_model();
     assert_eq!(sizes.0, 2, "once at the start, once asked");
 }
 
@@ -440,41 +475,45 @@ impl tea::Model for Quick {
 }
 
 #[test]
-fn an_unanswered_query_delays_the_end_by_half_a_second_at_most() {
-    let started = Instant::now();
-    let backend = TestBackend::new(20, 3).terminal();
-    let screen = backend.screen();
-    let _ = tea::Program::new(Quick).run_with(backend).unwrap();
-    let took = started.elapsed();
-    assert!(
-        took >= Duration::from_millis(450),
-        "waited for the reply: {took:?}"
+fn an_unanswered_query_delays_the_end_by_half_a_second() {
+    let terminal = TestTerminal::new(20, 3).terminal();
+    let test = TestProgram::with_terminal(tea::Program::new(Quick), terminal);
+    assert_eq!(
+        test.elapsed(),
+        Duration::from_millis(500),
+        "waited for the reply"
     );
-    assert!(took < Duration::from_millis(1500), "but not long: {took:?}");
-    assert!(screen.raw().contains("\x1b[c"), "the sentinel was asked");
+    assert!(test.final_output().ends_with(b"\x1b[?7h"));
+    let raw = String::from_utf8_lossy(test.output()).into_owned();
+    assert!(raw.contains("\x1b[c"), "the sentinel was asked");
 }
 
 #[test]
 fn an_answered_sentinel_ends_the_wait_at_once() {
-    let started = Instant::now();
-    let backend = TestBackend::new(20, 3)
+    let terminal = TestTerminal::new(20, 3)
         .terminal()
-        .gap(Duration::from_millis(50))
-        .bytes(b"\x1b]11;rgb:0000/0000/0000\x07\x1b[?62c");
-    let _ = tea::Program::new(Quick).run_with(backend).unwrap();
-    assert!(
-        started.elapsed() < Duration::from_millis(400),
-        "{:?}",
-        started.elapsed()
-    );
+        .reply("\x1b[c", "\x1b]11;rgb:0000/0000/0000\x07\x1b[?62c");
+    let test = TestProgram::with_terminal(tea::Program::new(Quick), terminal);
+    assert!(test.is_finished());
+    assert_eq!(test.elapsed(), Duration::ZERO);
 }
 
 #[test]
 fn a_backend_that_is_not_a_terminal_is_never_waited_for() {
-    let started = Instant::now();
-    let backend = TestBackend::new(20, 3);
+    let test = TestProgram::new(Quick, 20, 3);
+    assert!(test.is_finished());
+    assert_eq!(test.elapsed(), Duration::ZERO);
+    let raw = String::from_utf8_lossy(test.output()).into_owned();
+    assert!(!raw.contains("\x1b[c"));
+}
+
+#[test]
+fn a_test_backend_that_is_a_terminal_waits_for_replies_on_the_real_clock() {
+    let backend = TestBackend::new(20, 3)
+        .terminal()
+        .gap(Duration::from_millis(50))
+        .bytes(b"\x1b]11;rgb:0000/0000/0000\x07\x1b[?62c");
     let screen = backend.screen();
     let _ = tea::Program::new(Quick).run_with(backend).unwrap();
-    assert!(started.elapsed() < Duration::from_millis(300));
-    assert!(!screen.raw().contains("\x1b[c"));
+    assert!(screen.raw().contains("\x1b[c"), "the sentinel was asked");
 }
