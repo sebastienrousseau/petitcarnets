@@ -13,8 +13,6 @@ readme = "README.md"
 keywords = ["tui", "terminal", "elm", "cli", "ui"]
 categories = ["command-line-interface", "gui"]
 include = ["src/**/*", "examples/**/*", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
-# Not published until it is ready; publishing is the maintainer's step.
-publish = false
 
 # No dependencies, by design: the terminal is driven through a few libc
 # functions declared in src/sys.rs.
