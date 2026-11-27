@@ -3,7 +3,118 @@
 All notable changes to this project are documented here. Every release is
 exactly 0.0.1 above the previous one.
 
-## [0.0.6] - Unreleased
+## [0.0.6] - 2026-11-27
+
+Components: Bubbles v2's, under its names and with its default key
+bindings, behind a default feature, `bubbles`, that adds no dependency;
+and `Cmd::map` and `Msg::route` to compose them.
+
+### Added
+
+- `bubbles`, a module behind the default feature `bubbles` (the crate
+  builds without it with `default-features = false`), with Bubbles v2.2.2's
+  components: `key` (`Binding`, `matches`), `help` (short and full help
+  from bindings, cut to the width with an ellipsis), `cursor` (a drawn
+  cursor that blinks), `spinner` (all twelve of Bubbles' spinners, with
+  their frames and speeds), `paginator` (dots or numbers), `textinput`
+  (prompt, placeholder, character limit, width and sideways scrolling by
+  display width, echo modes for passwords, moves and deletions by
+  character and word, paste, suggestions, validation, and the
+  terminal's own cursor if asked), `textarea` (soft wrap by display
+  width, line numbers, a prompt or a prompt function, limits on
+  characters, lines, size and wrapped lines, scrolling, case changes,
+  transposition, keyboard and mouse selection, copy with OSC 52),
+  `viewport` (keys, mouse wheel, sideways scrolling, soft wrap, a
+  gutter, line styles), `list` (items drawn by an `ItemDelegate`, a
+  `DefaultDelegate`, fuzzy filtering ranked as `sahilm/fuzzy` ranks it,
+  pages, a status bar, a spinner, status messages, help), `table`
+  (columns, rows, selection, scrolling, focus), `progress` (solid,
+  gradient (blended in CIE L*a*b* as Lip Gloss blends it) or per-cell
+  colours, and the spring animation, harmonica's maths ported), `timer`
+  and `stopwatch`. Each component is a struct with
+  `update(&mut self, &Msg<X>) -> Cmd<X>` and `view(&self) -> String`;
+  `X` is its own typed message, and a component with none is generic
+  over it. Components that tick carry an id, as in Bubbles. Every key
+  map's defaults are Bubbles v2's.
+- `Cmd::map`, Elm's `Cmd.map`: a child's commands become the parent's,
+  every message passed through a function; quit, interrupt, output and
+  terminal handovers stay as they are, batches and sequences map each
+  command, and tasks, ticks, `every` and `exec` send the mapped message.
+- `Msg::route`, for messages going down: the runtime's messages as they
+  are, the model's own through a function that picks a child's; and
+  `Msg::map`.
+- In `style`, the little of Lip Gloss the components need:
+  `Style::render` (each line painted, then padding, height, lines padded
+  to one width, the border, margins; text wider than a set width is
+  wrapped), `Style` padding, margins, `border` with `Border::NORMAL`,
+  `ROUNDED`, `THICK`, `DOUBLE` and `HIDDEN` and chosen sides, border
+  colour, width, height, `inherit`, `plain`, and the frame sizes;
+  `join_horizontal`, `join_vertical` and `Position`; `height` and
+  `block_width` (Lip Gloss's `Height` and `Width`); `truncate_with`,
+  `cut` and `wrap` (x/ansi's `Truncate`, `Cut` and `Wrap`), none of which
+  splits a wide character.
+- Fifteen examples, Bubble Tea's own ported: `textinput`, `textinputs`,
+  `textarea`, `spinners`, `list-simple`, `list-default`, `pager`,
+  `progress-static`, `progress-animated`, `table`, `help`, `timer`,
+  `stopwatch`, `paginator` and `chat`.
+- `tests/bubbles.rs`: each of those examples in `TestProgram`, 40 golden
+  screens in `tests/golden`, and composition tests: two spinners and a
+  text input in one parent each take only their own ticks (even when the
+  parent hands every tick to both), and a mapped quit, batch, sequence,
+  tick, `every`, task and `exec` keep their meaning.
+- `scripts/bubbles-fixture`, a Go program that runs Bubbles v2.2.2
+  itself and writes `tests/fixtures/bubbles.tsv`: every default key
+  binding with its help, the spinners, help and paginator views, 51 text
+  input and 46 text area editing sequences (keys in; value, cursor and
+  view out), list filter ranks for 21 terms, colour blends, springs,
+  progress bars with each cell's colours, viewports, tables and lists.
+  The unit tests check every line.
+- The real-terminal smoke test types UTF-8 into the `textinput` example.
+- CI's Test job also runs clippy and the tests without the components
+  (`--no-default-features`), and builds the documentation with every
+  feature.
+
+### Changed
+
+- The test that switches the width method to grapheme widths moved from
+  `tests/harness.rs` to `tests/width_method.rs`, a binary of its own:
+  the method is shared by the process, and another test starting a
+  `TestProgram` at the same moment set it back, so it failed about one
+  run in six.
+- The Miri job skips the components' unit tests: they are safe Rust with
+  no FFI, checked against Go and by a seeded stress test of random keys,
+  pastes and resizes in the other jobs.
+
+### Fixed, compared with Bubbles v2
+
+- The text input moves, deletes and scrolls by grapheme cluster, as
+  Bubbles' own text area does, instead of by code point: the cursor no
+  longer stops inside a cluster, and Backspace and Delete no longer
+  leave half of one (Bubbles' issue #1097, Thai; the same for accents,
+  ZWJ emoji and skin tones). A placeholder's first cluster stays whole
+  under the cursor (#573), and a wide placeholder is cut to the width
+  instead of overflowing it with NUL characters.
+- The text input's suggestion shows the character after the whole text
+  under the cursor; Go takes it at the cursor's place in the visible
+  part, the wrong one once the text has scrolled.
+- The list filters in `update`, so its matches, pages and dots always
+  belong to the filter showing; Go filters on another goroutine and
+  pages before the matches arrive (and an older filter's matches can
+  land after a newer one's).
+- The list's filter input gets the filter styles the list defines; Go
+  defines them and never applies them.
+- A table's selected style reaches every cell even when the cell style
+  has a colour (#729).
+
+### Not ported
+
+- The viewport's deprecated high performance mode and its search
+  highlights; the file picker and the tree.
+- The default delegate's update and help functions (write a delegate);
+  a list's delegate is cloned for its update.
+- Timers stop at zero rather than going below it; the stopwatch takes
+  its time from the program's clock (so it follows `TestProgram`'s),
+  not the wall clock.
 
 ## [0.0.5] - 2026-11-27
 

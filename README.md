@@ -27,7 +27,10 @@ else wrote over it, a colour profile detected from the environment that
 every colour written comes down to, and the terminal queries (colours,
 cursor, version, capabilities, clipboard). From v0.0.5 it has a public
 test harness, `TestProgram`: Bubble Tea's teatest, on a virtual clock.
-Expect the API to grow.
+From v0.0.6 it has the components of [Bubbles](https://github.com/charmbracelet/bubbles)
+v2 (text input, text area, list, table, viewport, spinner, progress bar,
+help and the rest), with their default key bindings, and `Cmd::map` to
+compose them. Expect the API to grow.
 
 ## Why
 
@@ -131,6 +134,52 @@ a program that wants nothing left behind returns an empty view last.
 | `tea.Batch(a, b)`, `tea.Sequence(a, b)` | `tea::batch([a, b])`, `tea::sequence([a, b])` |
 | `tea.Tick(d, fn)`, `tea.Every(d, fn)` | `tea::tick(d, f)`, `tea::every(d, f)` |
 | `p.Send(msg)` | `program.sender().send(msg)` |
+
+## Components
+
+The `bubbles` module (a default feature, no dependencies; turn it off
+with `default-features = false`) has Bubbles v2's components under the
+names Go uses, with the same default key bindings, checked line by line
+against Bubbles itself, and the same behaviour (where Bubbles has a bug,
+it is fixed and said so in the CHANGELOG).
+
+| Bubbles (Go) | petitcarnets |
+| --- | --- |
+| `charm.land/bubbles/v2/key` | `tea::bubbles::key`: `Binding`, `matches` |
+| `.../help` | `tea::bubbles::help`: `Model`, `KeyMap` |
+| `.../cursor` | `tea::bubbles::cursor` |
+| `.../spinner` | `tea::bubbles::spinner`: every spinner, `Spinner::DOT` and the rest |
+| `.../paginator` | `tea::bubbles::paginator` |
+| `.../textinput` | `tea::bubbles::textinput`: passwords, suggestions, validation |
+| `.../textarea` | `tea::bubbles::textarea`: soft wrap, line numbers, selection |
+| `.../viewport` | `tea::bubbles::viewport`: keys, mouse wheel, soft wrap, gutter |
+| `.../list` | `tea::bubbles::list`: delegates, fuzzy filtering, pages, help |
+| `.../table` | `tea::bubbles::table` |
+| `.../progress` | `tea::bubbles::progress`: gradients, spring animation |
+| `.../timer`, `.../stopwatch` | `tea::bubbles::timer`, `tea::bubbles::stopwatch` |
+
+A component is a struct with `update(&mut self, &tea::Msg<X>) ->
+tea::Cmd<X>` and `view(&self) -> String`, where `X` is its own typed
+message. A parent keeps its children's messages in its own enum, maps
+their commands up and routes messages down:
+
+| Go | petitcarnets |
+| --- | --- |
+| `ti := textinput.New(); ti.Focus()` | `let mut ti = textinput::Model::new(); let cmd = ti.focus();` |
+| `m.input, cmd = m.input.Update(msg)` | `let cmd = self.input.update(&msg);` |
+| `case spinner.TickMsg:` | `tea::Msg::App(Msg::Spinner(tick)) =>` |
+| a child's `tea.Cmd` returned as is | `child_cmd.map(Msg::Spinner)` |
+| the parent's `msg` passed down as is | `msg.route(\|m\| ...)` gives the child's `tea::Msg<X>` |
+| `key.Matches(msg, m.keys.Up)` | `m.keys.up.matches(&key)` or `key::matches(&key, &[&up])` |
+
+Components that tick (spinners, the cursor's blink, the progress bar's
+animation, timers) carry an id, as in Bubbles, so several in one parent
+take only their own ticks. Text is measured by display width with the
+program's width method: no component splits a grapheme cluster or a
+wide character. The examples `textinput`, `textinputs`, `textarea`,
+`spinners`, `list-simple`, `list-default`, `pager`, `progress-static`,
+`progress-animated`, `table`, `help`, `timer`, `stopwatch`, `paginator`
+and `chat` are Bubble Tea's own, ported.
 
 ## Testing
 
