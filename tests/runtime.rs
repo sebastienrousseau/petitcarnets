@@ -100,16 +100,6 @@ impl Probe {
     }
 }
 
-/// Runs a probe on `TestBackend` with `keys`, on the real clock.
-fn run_backend(keys: impl IntoIterator<Item = Key>) -> (Probe, String) {
-    let backend = TestBackend::new(40, 10).keys(keys);
-    let screen = backend.screen();
-    let model = tea::Program::new(Probe::default())
-        .run_with(backend)
-        .expect("the program runs");
-    (model, screen.text())
-}
-
 /// Runs a probe with `keys`, then lets it finish; the model, and the
 /// text written without escape sequences.
 fn run(keys: impl IntoIterator<Item = Key>) -> (Probe, String) {
@@ -134,10 +124,18 @@ fn run_inputs(inputs: impl IntoIterator<Item = Input>) -> Result<Probe, tea::Err
 #[test]
 fn a_test_backend_plays_keys_on_the_real_clock() {
     let (up, down) = (Key::new(KeyCode::Up), Key::new(KeyCode::Down));
-    let (model, screen) = run_backend([up.clone(), up.clone(), down, up, Key::char('q')]);
+    let backend = TestBackend::new(40, 10).keys([up.clone(), up.clone(), down, up, Key::char('q')]);
+    let screen = backend.screen();
+    let model = tea::Program::new(Probe::default())
+        .run_with(backend)
+        .expect("the program runs");
     assert_eq!(model.count, 2);
-    assert!(screen.trim_start().starts_with("count 0"), "{screen}");
-    assert!(screen.trim_end().ends_with("1212"), "{screen}");
+    // On the real clock, how keys group into frames depends on timing
+    // (a slow machine, or Miri, can draw two keys in one frame), so the
+    // check is the screen the bytes leave behind, not the bytes.
+    let mut vt = tea::testing::Vt::new(40, 10);
+    vt.feed(screen.raw().as_bytes());
+    assert!(vt.text().contains("count 2"), "{}", vt.text());
 }
 
 #[test]
