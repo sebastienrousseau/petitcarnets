@@ -3,6 +3,8 @@
 All notable changes to this project are documented here. Every release is
 exactly 0.0.1 above the previous one.
 
+## [0.0.6] - Unreleased
+
 ## [0.0.5] - 2026-11-27
 
 Testing and speed: a public, deterministic test harness (Bubble Tea's
