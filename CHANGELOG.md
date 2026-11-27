@@ -3,6 +3,8 @@
 All notable changes to this project are documented here. Every release is
 exactly 0.0.1 above the previous one.
 
+## [0.0.5] - Unreleased
+
 ## [0.0.4] - 2026-11-27
 
 Bubble Tea v2's lifecycle and terminal queries: running other programs
