@@ -7,7 +7,7 @@
 //! is done, and a sequence starts its next command only then.
 
 use crate::backend::Input;
-use crate::cmd::{Cmd, Fire, Inner};
+use crate::cmd::{Cmd, Fire, Inner, Output};
 use crate::msg::Msg;
 use std::cmp::{Ordering, Reverse};
 use std::collections::{BinaryHeap, HashMap, VecDeque};
@@ -44,6 +44,8 @@ pub(crate) enum Item<M> {
     Kill,
     /// Stop with [`Error::Panic`](crate::Error::Panic).
     Panic(String),
+    /// Output for the renderer.
+    Output(Output),
 }
 
 /// Who to tell when a command is done.
@@ -164,6 +166,7 @@ impl<M: Send + 'static> Executor<M> {
             Inner::Every(period, fire) => {
                 self.add_timer(now + until_next(period, SystemTime::now()), fire, parent);
             }
+            Inner::Output(output) => self.finish(parent, Item::Output(output)),
         }
     }
 

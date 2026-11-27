@@ -36,6 +36,20 @@ pub(crate) enum Inner<M> {
     Tick(Duration, Fire<M>),
     /// A message at the next multiple of a period on the system clock.
     Every(Duration, Fire<M>),
+    /// Output for the renderer, in program order.
+    Output(Output),
+}
+
+/// Output a command asks the renderer for: applied in program order,
+/// between frames.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Output {
+    /// Lines to print above an inline frame.
+    Print(String),
+    /// Bytes to write to the terminal as they are.
+    Raw(Vec<u8>),
+    /// Clear the screen before the next frame.
+    ClearScreen,
 }
 
 impl<M> Cmd<M> {
@@ -116,6 +130,49 @@ pub fn every<M>(
     Cmd(Inner::Every(period, Box::new(message)))
 }
 
+/// Prints `text` above the program's frame, on lines of its own that
+/// stay in the terminal's scrollback: Bubble Tea's `tea.Println`. It is
+/// ordered with frames: the frame drawn before it stays below it. On the
+/// alternate screen it prints nothing, as in Bubble Tea. Use
+/// [`printf!`](crate::printf!) to format.
+#[must_use]
+pub fn println<M>(text: impl Into<String>) -> Cmd<M> {
+    Cmd(Inner::Output(Output::Print(text.into())))
+}
+
+/// Writes `bytes` to the terminal as they are, before the next frame:
+/// Bubble Tea's `tea.Raw`, for queries and sequences petitcarnets does
+/// not send itself. Bytes that move the cursor or change the screen can
+/// confuse the renderer.
+#[must_use]
+pub fn raw<M>(bytes: impl Into<Vec<u8>>) -> Cmd<M> {
+    Cmd(Inner::Output(Output::Raw(bytes.into())))
+}
+
+/// Clears the screen and draws the next frame from the top left, with
+/// its modes written again: Bubble Tea's `tea.ClearScreen`. Never needed
+/// for ordinary redraws.
+#[must_use]
+pub const fn clear_screen<M>() -> Cmd<M> {
+    Cmd(Inner::Output(Output::ClearScreen))
+}
+
+/// Prints a formatted line above the program's frame: Bubble Tea's
+/// `tea.Printf`, a [`println`](crate::println()) of [`format!`]'s result.
+///
+/// ```
+/// use petitcarnets as tea;
+///
+/// let done: tea::Cmd<()> = tea::printf!("{} packages installed", 3);
+/// # let _ = done;
+/// ```
+#[macro_export]
+macro_rules! printf {
+    ($($arg:tt)*) => {
+        $crate::println(::std::format!($($arg)*))
+    };
+}
+
 /// Drops the `none`s; no command left is `none`, one is itself.
 fn collapse<M>(
     cmds: impl IntoIterator<Item = Cmd<M>>,
@@ -140,6 +197,7 @@ impl<M> fmt::Debug for Cmd<M> {
             Inner::Task(_) => f.write_str("task(..)"),
             Inner::Tick(d, _) => write!(f, "tick({d:?}, ..)"),
             Inner::Every(d, _) => write!(f, "every({d:?}, ..)"),
+            Inner::Output(output) => output.fmt(f),
         }
     }
 }

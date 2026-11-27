@@ -1,0 +1,20 @@
+[package]
+name = "petitcarnets-bench"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "Bytes written per frame: petitcarnets against other Bubble Tea ports."
+
+# Not part of the petitcarnets package or any workspace.
+[workspace]
+
+[dependencies]
+petitcarnets = { path = "../.." }
+bubbletea-rs = { version = "=0.0.9", optional = true }
+charmed = { package = "charmed-bubbletea", version = "=0.3.0", optional = true, default-features = false }
+tokio = { version = "1", optional = true, features = ["rt-multi-thread", "macros", "io-util", "time"] }
+
+[features]
+default = ["others"]
+# The other Rust ports; `--no-default-features` measures petitcarnets only.
+others = ["dep:bubbletea-rs", "dep:charmed", "dep:tokio"]

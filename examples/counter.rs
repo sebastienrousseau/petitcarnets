@@ -28,7 +28,8 @@ impl tea::Model for Counter {
         let help = Style::new()
             .dim()
             .paint("up/down or +/- to change, q to quit");
-        format!("\n  Count: {count}\n\n  {help}").into()
+        // Full window, as before views chose their screen.
+        tea::View::new(format!("\n  Count: {count}\n\n  {help}")).with_alt_screen(true)
     }
 }
 

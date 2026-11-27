@@ -6,7 +6,7 @@
 //! the screen.
 
 use crate::backend::{Backend, InputSink};
-use crate::guard::{ALT_SCREEN, HIDDEN_CURSOR, ModeKey, TerminalGuard};
+use crate::guard::{HIDDEN_CURSOR, ModeKey, TerminalGuard};
 use crate::mode::TerminalMode;
 use crate::msg::Size;
 use crate::reader::{self, STOP};
@@ -90,9 +90,8 @@ impl Backend for Terminal {
     fn enter(&mut self) -> io::Result<()> {
         self.find_terminal()?;
         let guard = TerminalGuard::enter(self.input, self.output)?;
-        for (key, enter, leave) in [ALT_SCREEN, HIDDEN_CURSOR] {
-            guard.on(key, enter, leave)?;
-        }
+        let (key, enter, leave) = HIDDEN_CURSOR;
+        guard.on(key, enter, leave)?;
         let wake = Pipe::new()?;
         if let Err(err) = sys::watch_signals(wake.write) {
             sys::unwatch_signals();
@@ -133,6 +132,10 @@ impl Backend for Terminal {
         Ok(size_of(self.output))
     }
 
+    fn query_output_modes(&self) -> bool {
+        should_query(|name| std::env::var(name).ok())
+    }
+
     fn start_input(&mut self, sink: InputSink) {
         if let Some(running) = self.running.as_mut() {
             let reader = reader::spawn(self.input, running.wake.read, self.output, sink);
@@ -160,6 +163,20 @@ impl Backend for Terminal {
             (_, false) => running.guard.off(key),
         }
     }
+}
+
+/// Whether to ask the terminal about synchronized output and grapheme
+/// widths: Bubble Tea's `shouldQuerySynchronizedOutput`, reading the
+/// environment through `var`.
+fn should_query(var: impl Fn(&str) -> Option<String>) -> bool {
+    let term = var("TERM").unwrap_or_default();
+    let program = var("TERM_PROGRAM");
+    let ssh = var("SSH_TTY").is_some();
+    let known = ["ghostty", "wezterm", "alacritty", "kitty", "rio"]
+        .iter()
+        .any(|t| term.contains(t));
+    let apple = program.as_deref().is_some_and(|p| p.contains("Apple"));
+    (!ssh && !apple) || var("WT_SESSION").is_some() || known
 }
 
 impl Drop for Terminal {
@@ -201,6 +218,27 @@ mod tests {
             _ => None,
         };
         assert_eq!(fallback_size(env), Size::new(120, 24), "a zero is ignored");
+    }
+
+    #[test]
+    fn queries_are_gated_as_bubble_tea_gates_them() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                pairs
+                    .iter()
+                    .find(|(k, _)| *k == name)
+                    .map(|(_, v)| (*v).to_string())
+            }
+        };
+        assert!(should_query(env(&[])));
+        assert!(should_query(env(&[("TERM_PROGRAM", "WezTerm")])));
+        assert!(!should_query(env(&[("TERM_PROGRAM", "Apple_Terminal")])));
+        assert!(!should_query(env(&[("SSH_TTY", "/dev/pts/1")])));
+        assert!(should_query(env(&[("SSH_TTY", "x"), ("WT_SESSION", "1")])));
+        assert!(should_query(env(&[
+            ("SSH_TTY", "x"),
+            ("TERM", "xterm-kitty")
+        ])));
     }
 
     #[test]

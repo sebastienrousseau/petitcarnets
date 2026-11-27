@@ -49,7 +49,7 @@ impl tea::Model for Loader {
     }
 
     fn view(&self) -> tea::View {
-        match self.result {
+        let text = match self.result {
             None => format!(
                 "\n  {} Computing 20!...",
                 Style::new().fg(Color::MAGENTA).paint(FRAMES[self.frame])
@@ -59,8 +59,10 @@ impl tea::Model for Loader {
                 Style::new().bold().paint(&n.to_string()),
                 Style::new().dim().paint("q to quit")
             ),
-        }
-        .into()
+        };
+        // Inline, as Bubble Tea's spinner example: the result stays in
+        // the scrollback.
+        tea::View::new(text)
     }
 }
 

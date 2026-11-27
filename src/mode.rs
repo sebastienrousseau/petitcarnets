@@ -1,14 +1,18 @@
-//! Terminal modes a view turns on and off: mouse, focus, bracketed paste
-//! and keyboard enhancements, and the replies a terminal sends about
-//! modes.
+//! Terminal modes a view turns on and off (the alternate screen, mouse,
+//! focus, bracketed paste, keyboard enhancements, the cursor's look, the
+//! window title, colours, the progress bar), and the replies a terminal
+//! sends about modes.
 
-use crate::backend::Backend;
-use crate::mouse::MouseMode;
-use crate::msg::View;
-use std::io;
+mod active;
+
+pub(crate) use active::Modes;
+
+use crate::color::Rgb;
+use crate::view::{ProgressBar, ProgressBarState};
 
 /// A terminal mode a program can turn on and off. Bubble Tea turns them
-/// on and off from each [`View`]'s fields; a [`Backend`] writes them.
+/// on and off from each [`View`](crate::View)'s fields; a
+/// [`Backend`](crate::Backend) writes them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum TerminalMode {
@@ -27,55 +31,120 @@ pub enum TerminalMode {
     /// [`TerminalMode::KeyboardEnhancements`], set in place. Turning it
     /// off does nothing: turn off `KeyboardEnhancements` instead.
     KeyboardFlags(u8),
+    /// The alternate screen (mode 1049), saving the main screen's cursor.
+    AltScreen,
+    /// Autowrap turned off (DECAWM, mode 7): on writes `CSI ?7l`, off
+    /// `CSI ?7h`. On while a program draws, so writing the last column
+    /// never wraps or scrolls.
+    NoAutowrap,
+    /// Grapheme cluster widths (mode 2027), where the terminal has them.
+    UnicodeCore,
+    /// The window title saved on the terminal's title stack (XTWINOPS 22
+    /// and 23): off clears the title, then pops the saved one back.
+    SavedTitle,
+    /// A cursor shape (DECSCUSR 1 to 6); off is the terminal's default.
+    CursorStyle(u8),
+    /// The terminal's default text colour (OSC 10); off resets it.
+    ForegroundColor(Rgb),
+    /// The terminal's default background colour (OSC 11); off resets it.
+    BackgroundColor(Rgb),
+    /// The cursor's colour (OSC 12); off resets it.
+    CursorColor(Rgb),
+    /// A progress bar (OSC 9;4); off removes it.
+    ProgressBar(ProgressBar),
 }
 
 impl TerminalMode {
     /// The bytes that turn the mode on (`on`) or off.
     #[must_use]
     pub fn sequence(self, on: bool) -> Vec<u8> {
-        match (self, on) {
-            (Self::KeyboardEnhancements(flags), true) => {
-                format!("\x1b[>4;2m\x1b[>{flags}u").into_bytes()
-            }
-            (Self::KeyboardFlags(flags), true) => {
-                format!("\x1b[>4;2m\x1b[={flags};1u").into_bytes()
-            }
-            (mode, true) => mode.enable().to_vec(),
-            (mode, false) => mode.disable().to_vec(),
+        if on {
+            self.enter_sequence()
+        } else {
+            self.disable().to_vec()
         }
     }
 
-    /// The bytes that turn a mode without flags on.
-    const fn enable(self) -> &'static [u8] {
+    /// The bytes that turn the mode on.
+    fn enter_sequence(self) -> Vec<u8> {
         match self {
-            Self::BracketedPaste => b"\x1b[?2004h",
-            Self::ReportFocus => b"\x1b[?1004h",
-            Self::MouseCellMotion => b"\x1b[?1002h\x1b[?1006h",
-            Self::MouseAllMotion => b"\x1b[?1003h\x1b[?1006h",
-            Self::KeyboardEnhancements(_) | Self::KeyboardFlags(_) => b"",
+            Self::KeyboardEnhancements(flags) => format!("\x1b[>4;2m\x1b[>{flags}u").into_bytes(),
+            Self::KeyboardFlags(flags) => format!("\x1b[>4;2m\x1b[={flags};1u").into_bytes(),
+            Self::CursorStyle(n) => format!("\x1b[{n} q").into_bytes(),
+            Self::ForegroundColor(c) => osc_colour(10, c),
+            Self::BackgroundColor(c) => osc_colour(11, c),
+            Self::CursorColor(c) => osc_colour(12, c),
+            Self::ProgressBar(bar) => bar.sequence().into_bytes(),
+            mode => mode.entry().1.to_vec(),
         }
+    }
+
+    /// The mode's row in [`SEQUENCES`].
+    fn entry(self) -> &'static (TerminalMode, &'static [u8], &'static [u8]) {
+        let kind = self.kind();
+        SEQUENCES
+            .iter()
+            .find(|e| e.0 == kind)
+            .unwrap_or(&SEQUENCES[0])
     }
 
     /// The bytes that turn the mode off; Bubble Tea turns every mouse
     /// mode off at once.
-    pub(crate) const fn disable(self) -> &'static [u8] {
-        match self {
-            Self::BracketedPaste => b"\x1b[?2004l",
-            Self::ReportFocus => b"\x1b[?1004l",
-            Self::MouseCellMotion | Self::MouseAllMotion => b"\x1b[?1002l\x1b[?1003l\x1b[?1006l",
-            Self::KeyboardEnhancements(_) => b"\x1b[>4m\x1b[<u",
-            Self::KeyboardFlags(_) => b"",
-        }
+    pub(crate) fn disable(self) -> &'static [u8] {
+        self.entry().2
     }
 
     /// The same mode whatever its flags, to tell modes apart.
     pub(crate) const fn kind(self) -> Self {
+        const BLACK: Rgb = Rgb::new(0, 0, 0);
         match self {
             Self::KeyboardEnhancements(_) => Self::KeyboardEnhancements(0),
             Self::KeyboardFlags(_) => Self::KeyboardFlags(0),
+            Self::CursorStyle(_) => Self::CursorStyle(0),
+            Self::ForegroundColor(_) => Self::ForegroundColor(BLACK),
+            Self::BackgroundColor(_) => Self::BackgroundColor(BLACK),
+            Self::CursorColor(_) => Self::CursorColor(BLACK),
+            Self::ProgressBar(_) => Self::ProgressBar(ProgressBar {
+                state: ProgressBarState::None,
+                value: 0,
+            }),
             mode => mode,
         }
     }
+}
+
+/// Each kind of mode, the bytes that turn it on (when they do not
+/// depend on its value) and the bytes that turn it off.
+const SEQUENCES: [(TerminalMode, &[u8], &[u8]); 15] = {
+    use TerminalMode as M;
+    const BLACK: Rgb = Rgb::new(0, 0, 0);
+    const NO_BAR: ProgressBar = ProgressBar {
+        state: ProgressBarState::None,
+        value: 0,
+    };
+    const MOUSE_OFF: &[u8] = b"\x1b[?1002l\x1b[?1003l\x1b[?1006l";
+    [
+        (M::BracketedPaste, b"\x1b[?2004h", b"\x1b[?2004l"),
+        (M::ReportFocus, b"\x1b[?1004h", b"\x1b[?1004l"),
+        (M::MouseCellMotion, b"\x1b[?1002h\x1b[?1006h", MOUSE_OFF),
+        (M::MouseAllMotion, b"\x1b[?1003h\x1b[?1006h", MOUSE_OFF),
+        (M::KeyboardEnhancements(0), b"", b"\x1b[>4m\x1b[<u"),
+        (M::KeyboardFlags(0), b"", b""),
+        (M::AltScreen, b"\x1b[?1049h", b"\x1b[?1049l"),
+        (M::NoAutowrap, b"\x1b[?7l", b"\x1b[?7h"),
+        (M::UnicodeCore, b"\x1b[?2027h", b"\x1b[?2027l"),
+        (M::SavedTitle, b"\x1b[22;2t", b"\x1b]2;\x07\x1b[23;2t"),
+        (M::CursorStyle(0), b"", b"\x1b[0 q"),
+        (M::ForegroundColor(BLACK), b"", b"\x1b]110\x07"),
+        (M::BackgroundColor(BLACK), b"", b"\x1b]111\x07"),
+        (M::CursorColor(BLACK), b"", b"\x1b]112\x07"),
+        (M::ProgressBar(NO_BAR), b"", b"\x1b]9;4;0\x07"),
+    ]
+};
+
+/// An OSC that sets colour `n` (10, 11 or 12), as Go writes it.
+fn osc_colour(n: u8, c: Rgb) -> Vec<u8> {
+    format!("\x1b]{n};#{:02x}{:02x}{:02x}\x07", c.r, c.g, c.b).into_bytes()
 }
 
 /// The keyboard enhancements a view asks for, on top of the kitty
@@ -226,97 +295,6 @@ impl From<ModeSetting> for u8 {
             ModeSetting::PermanentlyReset => 4,
             ModeSetting::Other(v) => v,
         }
-    }
-}
-
-/// The modes a frame asked for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Wanted {
-    paste: bool,
-    focus: bool,
-    mouse: MouseMode,
-    keyboard: u8,
-}
-
-impl Wanted {
-    /// Nothing on.
-    const OFF: Self = Self {
-        paste: false,
-        focus: false,
-        mouse: MouseMode::None,
-        keyboard: 0,
-    };
-
-    fn of(view: &View) -> Self {
-        Self {
-            paste: !view.disable_bracketed_paste_mode,
-            focus: view.report_focus,
-            mouse: view.mouse_mode,
-            keyboard: view.keyboard_enhancements.flags(),
-        }
-    }
-}
-
-/// The terminal mode for a mouse mode.
-const fn mouse_mode(mode: MouseMode) -> Option<TerminalMode> {
-    match mode {
-        MouseMode::None => None,
-        MouseMode::CellMotion => Some(TerminalMode::MouseCellMotion),
-        MouseMode::AllMotion => Some(TerminalMode::MouseAllMotion),
-    }
-}
-
-/// The modes on now, so each frame changes only what differs, and the
-/// end of a run turns them all off.
-#[derive(Debug, Default)]
-pub(crate) struct Modes(Option<Wanted>);
-
-impl Modes {
-    /// Turns modes on and off so the terminal matches `view`.
-    pub(crate) fn apply(&mut self, view: &View, backend: &mut impl Backend) -> io::Result<()> {
-        let want = Wanted::of(view);
-        self.change(want, backend)?;
-        self.0 = Some(want);
-        Ok(())
-    }
-
-    /// Turns every mode off, newest first.
-    pub(crate) fn clear(&mut self, backend: &mut impl Backend) -> io::Result<()> {
-        if self.0.is_some() {
-            self.change(Wanted::OFF, backend)?;
-        }
-        self.0 = None;
-        Ok(())
-    }
-
-    fn change(&self, want: Wanted, backend: &mut impl Backend) -> io::Result<()> {
-        let was = self.0.unwrap_or(Wanted::OFF);
-        let toggle = |mode, on: bool, was: bool| (on != was).then_some((mode, on));
-        let mut changes: Vec<(TerminalMode, bool)> = Vec::new();
-        changes.extend(toggle(TerminalMode::BracketedPaste, want.paste, was.paste));
-        changes.extend(toggle(TerminalMode::ReportFocus, want.focus, was.focus));
-        if want.mouse != was.mouse {
-            changes.extend(mouse_mode(was.mouse).map(|m| (m, false)));
-            changes.extend(mouse_mode(want.mouse).map(|m| (m, true)));
-        }
-        changes.extend(keyboard_change(was.keyboard, want.keyboard));
-        if want == Wanted::OFF {
-            changes.reverse();
-        }
-        changes
-            .into_iter()
-            .try_for_each(|(mode, on)| backend.set_mode(mode, on))
-    }
-}
-
-/// How the keyboard entry changes from flags `was` to `want` (0 is no
-/// entry).
-fn keyboard_change(was: u8, want: u8) -> Option<(TerminalMode, bool)> {
-    match (was, want) {
-        (w, n) if w == n => None,
-        (0, n) => Some((TerminalMode::KeyboardEnhancements(n), true)),
-        (w, 0) => Some((TerminalMode::KeyboardEnhancements(w), false)),
-        (_, n) => Some((TerminalMode::KeyboardFlags(n), true)),
     }
 }
 

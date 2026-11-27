@@ -45,6 +45,7 @@
 //!
 //! *Petits carnets*: little notebooks. Linux, macOS and FreeBSD for now.
 
+mod ansi;
 mod backend;
 mod cmd;
 mod color;
@@ -66,24 +67,23 @@ mod sys;
 #[cfg(unix)]
 mod terminal;
 mod unicode;
+mod view;
 
 pub use backend::{Backend, Input, InputSink};
-pub use cmd::{Cmd, batch, every, interrupt, quit, sequence, tick};
+pub use cmd::{Cmd, batch, clear_screen, every, interrupt, println, quit, raw, sequence, tick};
 pub use color::Rgb;
 pub use key::{Key, KeyCode, KeyMod};
 pub use mode::{
     KeyboardEnhancements, KeyboardEnhancementsReport, ModeSetting, ReportedMode, TerminalMode,
 };
 pub use mouse::{Mouse, MouseButton, MouseMode};
-pub use msg::{Error, Msg, Size, View};
+pub use msg::{Error, Msg, Size};
 pub use program::{Program, Sender};
 #[cfg(unix)]
 pub use terminal::Terminal;
+pub use view::{Cursor, CursorShape, ProgressBar, ProgressBarState, View};
 
-/// Test helpers: a scripted terminal for running a model headless.
-pub mod testing {
-    pub use crate::backend::{Screen, TestBackend};
-}
+pub mod testing;
 
 /// A program's state and behaviour. Bubble Tea's `tea.Model`.
 pub trait Model {

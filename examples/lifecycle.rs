@@ -32,12 +32,12 @@ impl tea::Model for Lifecycle {
     }
 
     fn view(&self) -> tea::View {
-        format!(
+        tea::View::new(format!(
             "\n  pid {}\n\n  q quits, p panics in update, t panics in a task;\n  \
              or send SIGINT or SIGTERM",
             std::process::id()
-        )
-        .into()
+        ))
+        .with_alt_screen(true)
     }
 }
 

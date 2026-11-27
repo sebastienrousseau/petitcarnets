@@ -19,8 +19,6 @@ use std::sync::{Mutex, MutexGuard, Once, PoisonError};
 /// Which mode an entry is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ModeKey {
-    /// The alternate screen.
-    AltScreen,
     /// The hidden cursor.
     HiddenCursor,
     /// A [`TerminalMode`], whatever its flags.
@@ -30,9 +28,6 @@ pub(crate) enum ModeKey {
 /// A mode the guard turns on: its key, and the bytes that turn it on and
 /// off.
 pub(crate) type Mode = (ModeKey, &'static [u8], &'static [u8]);
-
-/// The alternate screen, saving and restoring the main one.
-pub(crate) const ALT_SCREEN: Mode = (ModeKey::AltScreen, b"\x1b[?1049h", b"\x1b[?1049l");
 
 /// The cursor, hidden while the program draws.
 pub(crate) const HIDDEN_CURSOR: Mode = (ModeKey::HiddenCursor, b"\x1b[?25l", b"\x1b[?25h");

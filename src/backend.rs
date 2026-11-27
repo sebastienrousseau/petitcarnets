@@ -76,7 +76,8 @@ pub type InputSink = Box<dyn Fn(Input) -> bool + Send + 'static>;
 
 /// A terminal a [`Program`](crate::Program) can run in.
 pub trait Backend {
-    /// Takes over the screen (raw mode, alternate screen, hidden cursor).
+    /// Takes over the terminal (raw mode, hidden cursor). The program
+    /// switches to the alternate screen itself, when a view asks.
     ///
     /// # Errors
     ///
@@ -114,6 +115,16 @@ pub trait Backend {
     /// If the sequence cannot be written.
     fn set_mode(&mut self, mode: TerminalMode, on: bool) -> io::Result<()> {
         self.output().write_all(&mode.sequence(on))
+    }
+
+    /// Whether the program should ask the terminal, when it starts,
+    /// whether it has synchronized output (mode 2026) and grapheme
+    /// widths (mode 2027). The replies arrive as
+    /// [`Input::ModeReport`]; nothing waits for them. No by default; the
+    /// real terminal asks unless Bubble Tea would not (over SSH, or in
+    /// Apple's Terminal).
+    fn query_output_modes(&self) -> bool {
+        false
     }
 }
 
