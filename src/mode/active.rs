@@ -3,7 +3,7 @@
 
 use super::TerminalMode;
 use crate::backend::Backend;
-use crate::color::Rgb;
+use crate::color::{ColorProfile, Rgb};
 use crate::mouse::MouseMode;
 use crate::view::{ProgressBar, ProgressBarState, View};
 use std::io;
@@ -24,16 +24,19 @@ struct Wanted {
 }
 
 impl Wanted {
-    fn of(view: &View) -> Self {
+    /// The modes `view` asks for, its colours brought down to `profile`
+    /// (and left out when it shows none).
+    fn of(view: &View, profile: ColorProfile) -> Self {
+        let colour = |c: Option<Rgb>| c.and_then(|c| profile.rgb(c));
         Self {
             paste: !view.disable_bracketed_paste_mode,
             focus: view.report_focus,
             mouse: view.mouse_mode,
             keyboard: view.keyboard_enhancements.flags(),
             title: view.window_title.clone(),
-            foreground: view.foreground_color,
-            background: view.background_color,
-            cursor_colour: view.cursor.and_then(|c| c.color),
+            foreground: colour(view.foreground_color),
+            background: colour(view.background_color),
+            cursor_colour: colour(view.cursor.and_then(|c| c.color)),
             cursor_style: view.cursor.map_or(0, |c| c.style()),
             progress: view
                 .progress_bar
@@ -69,20 +72,66 @@ fn valued<T: PartialEq>(
 }
 
 /// The modes on now.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct Modes {
     now: Option<Wanted>,
     /// Modes on for the whole run rather than per view: autowrap off,
     /// grapheme widths, the alternate screen and the saved title.
     held: Vec<TerminalMode>,
+    /// What colours the terminal is sent.
+    profile: ColorProfile,
+}
+
+impl Default for Modes {
+    fn default() -> Self {
+        Self {
+            now: None,
+            held: Vec::new(),
+            profile: ColorProfile::TrueColor,
+        }
+    }
 }
 
 impl Modes {
+    /// Brings the colours of the next frame's modes down to `profile`.
+    pub(crate) fn set_color_profile(&mut self, profile: ColorProfile) {
+        self.profile = profile;
+    }
+
+    /// Turns every mode off for another program, newest first, as at the
+    /// end, but remembers them for [`Modes::resume`].
+    pub(crate) fn release(&mut self, backend: &mut impl Backend) -> io::Result<()> {
+        let mut off = self
+            .now
+            .as_ref()
+            .map(|now| changes(now, &Wanted::default()))
+            .unwrap_or_default();
+        off.reverse();
+        off.extend(self.held.iter().rev().map(|m| (*m, false)));
+        set_all(off, backend)
+    }
+
+    /// Turns every mode [`Modes::release`] turned off on again, in the
+    /// order they were first turned on, and writes the title again.
+    pub(crate) fn resume(&mut self, backend: &mut impl Backend) -> io::Result<()> {
+        set_all(self.held.iter().map(|m| (*m, true)).collect(), backend)?;
+        let Some(now) = self.now.clone() else {
+            return Ok(());
+        };
+        set_all(changes(&Wanted::default(), &now), backend)?;
+        if now.title.is_empty() {
+            return Ok(());
+        }
+        let out = backend.output();
+        write!(out, "\x1b]2;{}\x07", now.title)?;
+        out.flush()
+    }
+
     /// Turns modes on and off so the terminal matches `view`. The first
     /// call also turns autowrap off, for the renderer.
     pub(crate) fn apply(&mut self, view: &View, backend: &mut impl Backend) -> io::Result<()> {
         self.hold(TerminalMode::NoAutowrap, backend)?;
-        let want = Wanted::of(view);
+        let want = Wanted::of(view, self.profile);
         let first = self.now.is_none();
         let was = self.now.take().unwrap_or_default();
         let result = set_all(changes(&was, &want), backend);
@@ -108,7 +157,7 @@ impl Modes {
         if alt {
             self.hold(TerminalMode::AltScreen, backend)
         } else {
-            self.release(TerminalMode::AltScreen, backend)
+            self.unhold(TerminalMode::AltScreen, backend)
         }
     }
 
@@ -127,7 +176,7 @@ impl Modes {
     }
 
     /// Turns a run-wide mode off, if it is on.
-    fn release(&mut self, mode: TerminalMode, backend: &mut impl Backend) -> io::Result<()> {
+    fn unhold(&mut self, mode: TerminalMode, backend: &mut impl Backend) -> io::Result<()> {
         let Some(i) = self.held.iter().position(|m| *m == mode) else {
             return Ok(());
         };

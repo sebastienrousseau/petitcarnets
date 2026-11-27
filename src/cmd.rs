@@ -1,11 +1,28 @@
 //! Commands: work an update asks the runtime to do, whose results come
 //! back as messages.
 
+mod lifecycle;
+mod query;
+
+pub use lifecycle::{
+    ExecCommand, exec, exec_command, release_terminal, repaint, restore_terminal, suspend,
+};
+pub use query::{
+    read_clipboard, read_primary_clipboard, request_background_color, request_capability,
+    request_cursor_color, request_cursor_position, request_foreground_color,
+    request_terminal_version, request_window_size, set_clipboard, set_primary_clipboard,
+};
+
 use std::fmt;
+use std::io;
 use std::time::{Duration, SystemTime};
 
 /// A message made from the time a timer fired.
 pub(crate) type Fire<M> = Box<dyn FnOnce(SystemTime) -> M + Send>;
+
+/// Work to run while another program has the terminal, given the error
+/// from handing it over, if any; it makes the next message.
+pub(crate) type Handoff<M> = Box<dyn FnOnce(Option<io::Error>) -> M + Send>;
 
 /// What an update asks the runtime to do next.
 ///
@@ -38,6 +55,35 @@ pub(crate) enum Inner<M> {
     Every(Duration, Fire<M>),
     /// Output for the renderer, in program order.
     Output(Output),
+    /// Hand the terminal to something else, or take it back.
+    Handover(Handover<M>),
+}
+
+/// Handing the terminal to something else and taking it back.
+pub(crate) enum Handover<M> {
+    /// Hand the terminal over, run this, take it back.
+    Exec(Handoff<M>),
+    /// Hand the terminal over and stop the process until it continues.
+    Suspend,
+    /// Hand the terminal over until [`Handover::Restore`].
+    Release,
+    /// Take the terminal back after [`Handover::Release`].
+    Restore,
+    /// Set the terminal up again after the process was stopped and
+    /// continued from outside.
+    Continue,
+}
+
+impl<M> fmt::Debug for Handover<M> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Exec(_) => "exec(..)",
+            Self::Suspend => "suspend",
+            Self::Release => "release_terminal",
+            Self::Restore => "restore_terminal",
+            Self::Continue => "continue",
+        })
+    }
 }
 
 /// Output a command asks the renderer for: applied in program order,
@@ -50,6 +96,14 @@ pub(crate) enum Output {
     Raw(Vec<u8>),
     /// Clear the screen before the next frame.
     ClearScreen,
+    /// Bytes that ask the terminal something: written as they are, and
+    /// remembered, so the reply is read before the terminal is handed
+    /// back.
+    Query(Vec<u8>),
+    /// Turn every mode off and on again, and draw the whole frame.
+    Repaint,
+    /// Read the window's size and send it to the model.
+    WindowSize,
 }
 
 impl<M> Cmd<M> {
@@ -189,16 +243,24 @@ fn collapse<M>(
 impl<M> fmt::Debug for Cmd<M> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.0 {
-            Inner::None => f.write_str("none"),
-            Inner::Quit => f.write_str("quit"),
-            Inner::Interrupt => f.write_str("interrupt"),
             Inner::Batch(cmds) => f.debug_tuple("batch").field(cmds).finish(),
             Inner::Sequence(cmds) => f.debug_tuple("sequence").field(cmds).finish(),
-            Inner::Task(_) => f.write_str("task(..)"),
             Inner::Tick(d, _) => write!(f, "tick({d:?}, ..)"),
             Inner::Every(d, _) => write!(f, "every({d:?}, ..)"),
             Inner::Output(output) => output.fmt(f),
+            Inner::Handover(handover) => handover.fmt(f),
+            other => f.write_str(plain_name(other)),
         }
+    }
+}
+
+/// The name of a command that holds nothing worth showing.
+const fn plain_name<M>(inner: &Inner<M>) -> &'static str {
+    match inner {
+        Inner::None => "none",
+        Inner::Quit => "quit",
+        Inner::Interrupt => "interrupt",
+        _ => "task(..)",
     }
 }
 
@@ -218,6 +280,24 @@ mod tests {
         assert_eq!(
             format!("{b:?}"),
             "batch([quit, task(..), sequence([interrupt, tick(5ms, ..)]), every(1s, ..)])"
+        );
+    }
+
+    #[test]
+    fn lifecycle_commands_describe_themselves() {
+        let cmds = batch([
+            exec(std::process::Command::new("true"), |_| 1),
+            suspend(),
+            release_terminal(),
+            restore_terminal(),
+            repaint(),
+            request_window_size(),
+            set_clipboard::<u8>("a"),
+        ]);
+        assert_eq!(
+            format!("{cmds:?}"),
+            "batch([exec(..), suspend, release_terminal, restore_terminal, Repaint, \
+             WindowSize, Raw([27, 93, 53, 50, 59, 99, 59, 89, 81, 61, 61, 7])])"
         );
     }
 

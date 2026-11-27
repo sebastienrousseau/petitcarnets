@@ -5,6 +5,7 @@
 //! terminal turning `\n` into `\r\n`.
 
 use super::cell::{Cell, Link, Pen};
+use crate::color::ColorProfile;
 use std::fmt::Write as _;
 
 /// How the cursor may be moved.
@@ -35,6 +36,10 @@ pub(crate) struct Writer {
     pub(crate) width: usize,
     /// How the cursor may move.
     pub(crate) addressing: Addressing,
+    /// What colours, attributes and links the terminal is sent: every
+    /// style is brought down to it here, the one place styles are
+    /// written.
+    pub(crate) profile: ColorProfile,
     pen: Pen,
     link: Link,
 }
@@ -49,6 +54,7 @@ impl Writer {
             rows: rows.max(1),
             width,
             addressing,
+            profile: ColorProfile::TrueColor,
             pen: Pen::DEFAULT,
             link: None,
         }
@@ -118,8 +124,10 @@ impl Writer {
         self.x = self.x.map(|x| x + n).filter(|x| *x < width);
     }
 
-    /// Changes the pen and link to `pen` and `link`.
+    /// Changes the pen and link to `pen` and `link`, as the colour
+    /// profile shows them.
     pub(crate) fn style(&mut self, pen: &Pen, link: &Link) {
+        let (pen, link) = (&self.profile.pen(*pen), &self.profile.link(link));
         if self.link != *link {
             let target = link.as_deref().unwrap_or(";");
             let _ = write!(self.buf, "\x1b]8;{target}\x07");

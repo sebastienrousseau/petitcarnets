@@ -167,6 +167,58 @@ func event(e uv.Event) string {
 	case uv.CursorColorEvent:
 		return colour("cursor-colour", e.Color, e)
 	default:
+		return reply(e)
+	}
+}
+
+// ints writes a list of numbers, comma separated.
+func ints(v []int) string {
+	s := make([]string, len(v))
+	for i, n := range v {
+		s[i] = fmt.Sprint(n)
+	}
+	return strings.Join(s, ",")
+}
+
+// size writes a size report Bubble Tea would deliver: a window size only
+// when it is plausible (Bubble Tea's isPlausibleWindowSize, and not
+// zero), any size only when it fits 16 bits.
+func size(kind string, w, h int, e uv.Event) string {
+	fits := w > 0 && h > 0 && w <= 0xffff && h <= 0xffff
+	if kind == "window-size" {
+		fits = fits && w <= 4096 && h <= 4096 && w*h <= 1<<20
+	}
+	if !fits {
+		return "other " + strings.TrimPrefix(fmt.Sprintf("%T", e), "uv.")
+	}
+	return fmt.Sprintf("%s w=%d h=%d", kind, w, h)
+}
+
+// reply writes the terminal's other replies, and Go's type name for
+// anything else.
+func reply(e uv.Event) string {
+	switch e := e.(type) {
+	case uv.ClipboardEvent:
+		return fmt.Sprintf("clipboard sel=%d content=%s", int(e.Selection), hexs(e.Content))
+	case uv.CapabilityEvent:
+		return "capability " + hexs(e.Content)
+	case uv.PrimaryDeviceAttributesEvent:
+		return "da1 " + ints(e)
+	case uv.SecondaryDeviceAttributesEvent:
+		return "da2 " + ints(e)
+	case uv.TertiaryDeviceAttributesEvent:
+		return "da3 " + hexs(string(e))
+	case uv.DarkColorSchemeEvent:
+		return "scheme dark"
+	case uv.LightColorSchemeEvent:
+		return "scheme light"
+	case uv.WindowSizeEvent:
+		return size("window-size", e.Width, e.Height, e)
+	case uv.PixelSizeEvent:
+		return size("pixel-size", e.Width, e.Height, e)
+	case uv.CellSizeEvent:
+		return size("cell-size", e.Width, e.Height, e)
+	default:
 		return "other " + strings.TrimPrefix(fmt.Sprintf("%T", e), "uv.")
 	}
 }

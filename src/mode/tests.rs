@@ -189,3 +189,52 @@ fn mode_settings_round_trip() {
     }
     assert_eq!(ModeSetting::from(2), ModeSetting::Reset);
 }
+
+#[test]
+fn a_hand_over_turns_everything_off_and_back_on_in_the_first_order() {
+    let mut backend = TestBackend::new(10, 3);
+    let screen = backend.screen();
+    let mut modes = Modes::default();
+    modes.switch_screen(true, &mut backend).unwrap();
+    let view = View::default()
+        .with_mouse_mode(MouseMode::CellMotion)
+        .with_window_title("t");
+    modes.apply(&view, &mut backend).unwrap();
+    let before = screen.raw().len();
+    modes.release(&mut backend).unwrap();
+    let off = screen.raw()[before..].to_string();
+    assert_eq!(
+        off,
+        "\x1b[>4m\x1b[<u\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\
+         \x1b]2;\x07\x1b[23;2t\x1b[?7h\x1b[?1049l"
+    );
+    let before = screen.raw().len();
+    modes.resume(&mut backend).unwrap();
+    assert_eq!(
+        &screen.raw()[before..],
+        "\x1b[?1049h\x1b[?7l\x1b[22;2t\x1b[?2004h\x1b[?1002h\x1b[?1006h\x1b[>4;2m\x1b[>1u\
+         \x1b]2;t\x07"
+    );
+    modes.clear(&mut backend).unwrap();
+    assert!(screen.raw().ends_with(&off), "the end turns off the same");
+}
+
+#[test]
+fn view_colours_come_down_to_the_profile() {
+    let mut backend = TestBackend::new(10, 3);
+    let screen = backend.screen();
+    let mut modes = Modes::default();
+    modes.set_color_profile(crate::color::ColorProfile::Ansi256);
+    let view = View::default().with_background_color(Rgb::new(0x12, 0x34, 0x56));
+    modes.apply(&view, &mut backend).unwrap();
+    assert!(
+        screen.raw().contains("\x1b]11;#005f5f\x07"),
+        "{:?}",
+        screen.raw()
+    );
+    let mut modes = Modes::default();
+    modes.set_color_profile(crate::color::ColorProfile::Ascii);
+    let before = screen.raw().len();
+    modes.apply(&view, &mut backend).unwrap();
+    assert!(!screen.raw()[before..].contains("\x1b]11;"));
+}

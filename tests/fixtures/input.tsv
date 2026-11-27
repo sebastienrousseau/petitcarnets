@@ -1565,10 +1565,10 @@ c2a9efb88f	press code=K0 text=c2a9efb88f mod=0 shifted=- base=- repeat=false str
 1b5b3f323032362479	other UnknownCsiEvent
 1b5b32303b332479	mode dec=false mode=20 value=3
 1b5b3f323032373b3330302479	mode dec=true mode=2027 value=44
-1b5b3f36323b323263	other PrimaryDeviceAttributesEvent
-1b5b3f313b3263	other PrimaryDeviceAttributesEvent
-1b5b3e313b31303b3063	other SecondaryDeviceAttributesEvent
-1b50217c37453536353434351b5c	other TertiaryDeviceAttributesEvent
+1b5b3f36323b323263	da1 62,22
+1b5b3f313b3263	da1 1,2
+1b5b3e313b31303b3063	da2 1,10,0
+1b50217c37453536353434351b5c	da3 7e565445
 1b50217c374535363534341b5c	other UnknownDcsEvent
 1b5b31323b343052	cursor x=39 y=11
 1b5b313b313752	cursor x=16 y=0
@@ -1609,10 +1609,31 @@ c2a9efb88f	press code=K0 text=c2a9efb88f mod=0 shifted=- base=- repeat=false str
 1b5b393958	other UnknownCsiEvent
 1b5b3e3071	other UnknownCsiEvent
 1b5d39393b666f6f07	other UnknownOscEvent
-1b5d35323b633b614756736247383d07	other ClipboardEvent
-1b5d35323b633b212107	other ClipboardEvent
+1b5d35323b633b614756736247383d07	clipboard sel=99 content=68656c6c6f
+1b5d35323b633b212107	clipboard sel=0 content=2121
+1b5d35323b703b643239796247513d1b5c	clipboard sel=112 content=776f726c64
+1b5d35323b6307	clipboard sel=0 content=
+1b5d35323b3b61476b3d07	clipboard sel=0 content=
+1b5d35323b633b61476b07	clipboard sel=0 content=61476b
+1b5d35323b633b07	clipboard sel=99 content=
+1b5d35323b733b59513d3d07	clipboard sel=115 content=61
+1b50312b723532343734321b5c	capability 524742
+1b50312b72353436333b3532343734323d333832663338326633381b5c	capability 54633b5247423d382f382f38
+1b50312b723761376133641b5c	capability 7a7a3d
+1b50312b721b5c	capability 
+1b5b3f36323b32323b353263	da1 62,22,52
+1b5b3f63	da1 0
+1b5b3f313a323b3363	da1 0,2,3
+1b5b3e34313b3335343b3063	da2 41,354,0
+1b50217c1b5c	da3 
+1b5b383b303b383074	other WindowSizeEvent
+1b5b383b353030303b383074	other WindowSizeEvent
+1b5b383b37303030303b383074	other WindowSizeEvent
+1b5b343b37303030303b313074	other PixelSizeEvent
+1b5b34383b303b303b303b3074	other WindowSizeEvent	other PixelSizeEvent
+1b5b363b303b3074	other CellSizeEvent
 1b5071666f6f1b5c	other UnknownDcsEvent
-1b50312b72353434653d373837343635373236641b5c	other CapabilityEvent
+1b50312b72353434653d373837343635373236641b5c	capability 544e3d787465726d
 1b50302b721b5c	other UnknownDcsEvent
 1b5f47693d313b4f4b1b5c	other KittyGraphicsEvent
 1b5f666f6f1b5c	other UnknownApcEvent
@@ -1621,14 +1642,14 @@ c2a9efb88f	press code=K0 text=c2a9efb88f mod=0 shifted=- base=- repeat=false str
 1b5d303b7818
 1b5d303b781a
 1b5f7818
-1b5b383b32343b383074	other WindowSizeEvent
-1b5b343b3630303b38303074	other PixelSizeEvent
-1b5b363b31363b3874	other CellSizeEvent
-1b5b34383b32343b38303b3630303b38303074	other WindowSizeEvent	other PixelSizeEvent
+1b5b383b32343b383074	window-size w=80 h=24
+1b5b343b3630303b38303074	pixel-size w=800 h=600
+1b5b363b31363b3874	cell-size w=8 h=16
+1b5b34383b32343b38303b3630303b38303074	window-size w=80 h=24	pixel-size w=800 h=600
 1b5b313174	other WindowOpEvent
 1b5b383b323474	other WindowOpEvent
-1b5b3f3939373b316e	other DarkColorSchemeEvent
-1b5b3f3939373b326e	other LightColorSchemeEvent
+1b5b3f3939373b316e	scheme dark
+1b5b3f3939373b326e	scheme light
 1b5b3f3939373b336e	other UnknownCsiEvent
 1b5b3e343b326d	other ModifyOtherKeysEvent
 1b5b3e346d	other UnknownCsiEvent
@@ -1697,7 +1718,7 @@ c3 a9	press code=U+00E9 text=c3a9 mod=0 shifted=- base=- repeat=false str=c3a9 k
 1b5b4d20 2121	other UnknownCsiEvent	press code=U+0020 text=20 mod=0 shifted=- base=- repeat=false str=7370616365 ks=7370616365	press code=U+0021 text=21 mod=0 shifted=- base=- repeat=false str=21 ks=21	press code=U+0021 text=21 mod=0 shifted=- base=- repeat=false str=21 ks=21
 1b5b354d212121	motion x=0 y=0 button=middle mod=3 str=616c742b73686966742b6d6964646c652b6d6f74696f6e
 9b4d21212178	click x=0 y=87 button=middle mod=0 str=6d6964646c65	press code=U+0078 text=78 mod=0 shifted=- base=- repeat=false str=78 ks=78
-1b5b3f313b32631b5b3f363263	other PrimaryDeviceAttributesEvent	other PrimaryDeviceAttributesEvent
+1b5b3f313b32631b5b3f363263	da1 1,2	da1 62
 61621b	press code=U+0061 text=61 mod=0 shifted=- base=- repeat=false str=61 ks=61	press code=U+0062 text=62 mod=0 shifted=- base=- repeat=false str=62 ks=62	press code=U+001B text= mod=0 shifted=- base=- repeat=false str=657363 ks=657363
 1b5b32373b353b39377e78	press code=U+0061 text= mod=4 shifted=- base=- repeat=false str=6374726c2b61 ks=6374726c2b61	press code=U+0078 text=78 mod=0 shifted=- base=- repeat=false str=78 ks=78
 1b5b39373b35751b5b39373b353a3375	press code=U+0061 text= mod=4 shifted=- base=- repeat=false str=6374726c2b61 ks=6374726c2b61	release code=U+0061 text= mod=4 shifted=- base=- repeat=false str=6374726c2b61 ks=6374726c2b61

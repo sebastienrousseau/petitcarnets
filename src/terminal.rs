@@ -9,13 +9,19 @@ use crate::backend::{Backend, InputSink};
 use crate::guard::{HIDDEN_CURSOR, ModeKey, TerminalGuard};
 use crate::mode::TerminalMode;
 use crate::msg::Size;
-use crate::reader::{self, STOP};
+use crate::reader::{self, PAUSE, RESUME, STOP};
 use crate::sys::{self, Pipe, STDIN, STDOUT};
 use std::ffi::c_int;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::os::fd::AsRawFd;
+use std::sync::mpsc::{self, Receiver};
 use std::thread::JoinHandle;
+use std::time::Duration;
+
+/// The longest wait for the reader to say it has paused; it answers at
+/// once unless it has already stopped.
+const PAUSE_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// The process's terminal.
 pub struct Terminal {
@@ -30,7 +36,7 @@ pub struct Terminal {
 struct Running {
     guard: TerminalGuard,
     wake: Pipe,
-    reader: Option<JoinHandle<()>>,
+    reader: Option<(JoinHandle<()>, Receiver<()>)>,
 }
 
 impl std::fmt::Debug for Terminal {
@@ -119,7 +125,7 @@ impl Backend for Terminal {
             return Ok(());
         };
         let stopped = sys::write_all_fd(wake.write, &[STOP]);
-        if let Some(reader) = reader {
+        if let Some((reader, _)) = reader {
             let _ = reader.join();
         }
         let flushed = self.out.flush();
@@ -132,15 +138,55 @@ impl Backend for Terminal {
         Ok(size_of(self.output))
     }
 
-    fn query_output_modes(&self) -> bool {
-        should_query(|name| std::env::var(name).ok())
+    fn is_terminal(&self) -> bool {
+        true
     }
 
     fn start_input(&mut self, sink: InputSink) {
         if let Some(running) = self.running.as_mut() {
-            let reader = reader::spawn(self.input, running.wake.read, self.output, sink);
-            running.reader = Some(reader);
+            let (ack, acks) = mpsc::channel();
+            let reader = reader::spawn(self.input, running.wake.read, self.output, sink, ack);
+            running.reader = Some((reader, acks));
         }
+    }
+
+    /// Pauses the reader once it says so (unread bytes stay for the next
+    /// program), shows the cursor, gives `SIGTSTP` its default handling
+    /// and puts the saved mode back, at once.
+    fn release(&mut self) -> io::Result<()> {
+        self.out.flush()?;
+        let Some(running) = self.running.as_ref() else {
+            return Ok(());
+        };
+        if let Some((_, acks)) = running.reader.as_ref() {
+            sys::write_all_fd(running.wake.write, &[PAUSE])?;
+            let _ = acks.recv_timeout(PAUSE_TIMEOUT);
+        }
+        running.guard.off(ModeKey::HiddenCursor)?;
+        sys::default_stop(true)?;
+        running.guard.cook()
+    }
+
+    /// Raw mode and the hidden cursor again, `SIGTSTP` watched again,
+    /// and the reader resumed.
+    fn restore(&mut self) -> io::Result<()> {
+        let Some(running) = self.running.as_ref() else {
+            return Ok(());
+        };
+        running.guard.raw()?;
+        sys::default_stop(false)?;
+        let (key, enter, leave) = HIDDEN_CURSOR;
+        running.guard.on(key, enter, leave)?;
+        if running.reader.is_some() {
+            sys::write_all_fd(running.wake.write, &[RESUME])?;
+        }
+        Ok(())
+    }
+
+    /// Stops the process group, as a shell's Ctrl-Z does, until it is
+    /// continued.
+    fn suspend(&mut self) -> io::Result<()> {
+        sys::stop_process_group()
     }
 
     fn output(&mut self) -> &mut dyn Write {
@@ -163,20 +209,6 @@ impl Backend for Terminal {
             (_, false) => running.guard.off(key),
         }
     }
-}
-
-/// Whether to ask the terminal about synchronized output and grapheme
-/// widths: Bubble Tea's `shouldQuerySynchronizedOutput`, reading the
-/// environment through `var`.
-fn should_query(var: impl Fn(&str) -> Option<String>) -> bool {
-    let term = var("TERM").unwrap_or_default();
-    let program = var("TERM_PROGRAM");
-    let ssh = var("SSH_TTY").is_some();
-    let known = ["ghostty", "wezterm", "alacritty", "kitty", "rio"]
-        .iter()
-        .any(|t| term.contains(t));
-    let apple = program.as_deref().is_some_and(|p| p.contains("Apple"));
-    (!ssh && !apple) || var("WT_SESSION").is_some() || known
 }
 
 impl Drop for Terminal {
@@ -218,27 +250,6 @@ mod tests {
             _ => None,
         };
         assert_eq!(fallback_size(env), Size::new(120, 24), "a zero is ignored");
-    }
-
-    #[test]
-    fn queries_are_gated_as_bubble_tea_gates_them() {
-        let env = |pairs: &'static [(&'static str, &'static str)]| {
-            move |name: &str| {
-                pairs
-                    .iter()
-                    .find(|(k, _)| *k == name)
-                    .map(|(_, v)| (*v).to_string())
-            }
-        };
-        assert!(should_query(env(&[])));
-        assert!(should_query(env(&[("TERM_PROGRAM", "WezTerm")])));
-        assert!(!should_query(env(&[("TERM_PROGRAM", "Apple_Terminal")])));
-        assert!(!should_query(env(&[("SSH_TTY", "/dev/pts/1")])));
-        assert!(should_query(env(&[("SSH_TTY", "x"), ("WT_SESSION", "1")])));
-        assert!(should_query(env(&[
-            ("SSH_TTY", "x"),
-            ("TERM", "xterm-kitty")
-        ])));
     }
 
     #[test]

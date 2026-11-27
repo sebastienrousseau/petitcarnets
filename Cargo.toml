@@ -15,6 +15,7 @@ categories = ["command-line-interface", "gui"]
 include = [
     "src/**/*",
     "examples/**/*",
+    "tests/fixtures/color.tsv",
     "tests/fixtures/input.tsv",
     "tests/fixtures/width.tsv",
     "README.md",

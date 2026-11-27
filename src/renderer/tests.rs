@@ -494,3 +494,46 @@ fn println_after_the_frame_shrank_goes_above_its_top() {
     let _ = rig.print("printed");
     rig.expect("printed\none");
 }
+
+#[test]
+fn a_release_erases_an_inline_frame_and_the_next_frame_is_whole() {
+    let mut rig = Rig::inline(20, 5);
+    let _ = rig.draw("one\ntwo");
+    let mut out = Vec::new();
+    rig.r.release(&mut out).unwrap();
+    let released = String::from_utf8(out).unwrap();
+    assert!(released.contains("\r\x1b[J"), "{released:?}");
+    rig.vt.feed(released.as_bytes());
+    assert_eq!(rig.vt.text(), "", "the frame is gone");
+    let again = rig.draw("one\ntwo");
+    assert!(again.contains("one") && again.contains("two"), "{again:?}");
+}
+
+#[test]
+fn a_repaint_draws_an_unchanged_frame_again() {
+    let mut rig = Rig::alt(20, 5);
+    let _ = rig.draw("same");
+    assert_eq!(rig.draw("same"), "");
+    rig.r.repaint();
+    let again = rig.draw("same");
+    assert!(
+        again.contains("\x1b[2J") && again.contains("same"),
+        "{again:?}"
+    );
+}
+
+#[test]
+fn styles_come_down_to_the_colour_profile_in_frames_and_printed_lines() {
+    let mut rig = Rig::inline(20, 5);
+    rig.r.set_color_profile(ColorProfile::Ascii);
+    let frame = rig.draw("\x1b[1;38;2;1;2;3mx");
+    assert!(
+        frame.contains("\x1b[1m") && !frame.contains("38;"),
+        "{frame:?}"
+    );
+    let printed = rig.print("\x1b[4;31my");
+    assert!(
+        printed.contains("\x1b[4m") && !printed.contains("31"),
+        "{printed:?}"
+    );
+}

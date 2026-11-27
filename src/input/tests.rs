@@ -112,6 +112,34 @@ fn reply_text(input: &Input) -> String {
         Input::ForegroundColor(c) => colour("fg", *c),
         Input::BackgroundColor(c) => colour("bg", *c),
         Input::CursorColor(c) => colour("cursor-colour", *c),
+        input => other_reply_text(input),
+    }
+}
+
+/// A list of numbers, comma separated.
+fn ints(v: &[i64]) -> String {
+    v.iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn other_reply_text(input: &Input) -> String {
+    match input {
+        Input::Clipboard { content, selection } => format!(
+            "clipboard sel={} content={}",
+            u8::from(*selection),
+            hex(content.as_bytes())
+        ),
+        Input::Capability(c) => format!("capability {}", hex(c.as_bytes())),
+        Input::PrimaryDeviceAttributes(v) => format!("da1 {}", ints(v)),
+        Input::SecondaryDeviceAttributes(v) => format!("da2 {}", ints(v)),
+        Input::TertiaryDeviceAttributes(id) => format!("da3 {}", hex(id.as_bytes())),
+        Input::ColorScheme(crate::msg::ColorScheme::Dark) => "scheme dark".into(),
+        Input::ColorScheme(crate::msg::ColorScheme::Light) => "scheme light".into(),
+        Input::Resize(s) => format!("window-size w={} h={}", s.width, s.height),
+        Input::PixelSize(s) => format!("pixel-size w={} h={}", s.width, s.height),
+        Input::CellSize(s) => format!("cell-size w={} h={}", s.width, s.height),
         other => format!("unexpected {other:?}"),
     }
 }

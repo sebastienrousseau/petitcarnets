@@ -7,6 +7,7 @@ use super::{ESC, Event, byte_code, kitty, mouse, press, press_code};
 use crate::backend::Input;
 use crate::key::{Key, KeyCode, KeyMod};
 use crate::mode::ReportedMode;
+use crate::msg::{ColorScheme, Size};
 
 /// Go's `UnknownCsiEvent`.
 const UNKNOWN: Event = Event::Other("UnknownCsiEvent");
@@ -33,10 +34,10 @@ type Handler = fn(&Csi<'_>) -> Handled;
 const HANDLERS: [(u8, u8, u8, Handler); 19] = [
     (b'?', b'$', b'y', |c| mode_report(c, true)),
     (b'?', 0, b'c', |c| {
-        Some(other(c, "PrimaryDeviceAttributesEvent"))
+        Some(reply(c, Input::PrimaryDeviceAttributes(attributes(c))))
     }),
     (b'>', 0, b'c', |c| {
-        Some(other(c, "SecondaryDeviceAttributesEvent"))
+        Some(reply(c, Input::SecondaryDeviceAttributes(attributes(c))))
     }),
     (b'?', 0, b'u', |c| Some(keyboard_flags(c))),
     (b'?', 0, b'R', private_cursor_report),
@@ -109,9 +110,18 @@ fn unfinished(b: &[u8], i: usize, intermediate: u8) -> (usize, Event) {
     (i, Event::Unknown)
 }
 
-/// A sequence Go decodes to an event not delivered here.
-fn other(c: &Csi<'_>, name: &'static str) -> (usize, Event) {
-    (c.end, Event::Other(name))
+/// A reply delivered as input.
+const fn reply(c: &Csi<'_>, input: Input) -> (usize, Event) {
+    (c.end, Event::Input(input))
+}
+
+/// Device attributes: each parameter, 0 for one followed by a
+/// sub-parameter, as Go's `parsePrimaryDevAttrs` reads them.
+fn attributes(c: &Csi<'_>) -> Vec<i64> {
+    c.params
+        .iter()
+        .map(|p| if p.has_more() { 0 } else { p.get(0) })
+        .collect()
 }
 
 /// A signed parameter as an `i32` coordinate.
@@ -258,8 +268,8 @@ fn modify_other_keys_reply(c: &Csi<'_>) -> Handled {
 fn colour_scheme(c: &Csi<'_>) -> Handled {
     let report = c.params.param(0, -1).0;
     match (report, c.params.param(1, -1).0) {
-        (997, 1) => Some(other(c, "DarkColorSchemeEvent")),
-        (997, 2) => Some(other(c, "LightColorSchemeEvent")),
+        (997, 1) => Some(reply(c, Input::ColorScheme(ColorScheme::Dark))),
+        (997, 2) => Some(reply(c, Input::ColorScheme(ColorScheme::Light))),
         _ => None,
     }
 }
@@ -275,15 +285,38 @@ fn window_op(c: &Csi<'_>) -> Handled {
     if !ok {
         return None;
     }
+    let size = |i: usize| (c.params.param(i + 1, 0).0, c.params.param(i, 0).0);
     let event = match (op, c.params.len()) {
-        (4, 3) => Event::Other("PixelSizeEvent"),
-        (6, 3) => Event::Other("CellSizeEvent"),
-        (8, 3) => Event::Other("WindowSizeEvent"),
+        (4, 3) => sized(size(1), Input::PixelSize, false, "PixelSizeEvent"),
+        (6, 3) => sized(size(1), Input::CellSize, false, "CellSizeEvent"),
+        (8, 3) => sized(size(1), Input::Resize, true, "WindowSizeEvent"),
         (48, 5) => Event::Multi(vec![
-            Event::Other("WindowSizeEvent"),
-            Event::Other("PixelSizeEvent"),
+            sized(size(1), Input::Resize, true, "WindowSizeEvent"),
+            sized(size(3), Input::PixelSize, false, "PixelSizeEvent"),
         ]),
         _ => Event::Other("WindowOpEvent"),
     };
     Some((c.end, event))
+}
+
+/// A size report, `(width, height)`, as input; a size that is zero or
+/// does not fit, or a window size Bubble Tea finds implausible (over
+/// 4096 either way, or over 2^20 cells), is dropped under Go's name.
+fn sized(
+    (width, height): (i64, i64),
+    input: fn(Size) -> Input,
+    window: bool,
+    name: &'static str,
+) -> Event {
+    let fits = |v: i64| {
+        u16::try_from(v)
+            .ok()
+            .filter(|&v| v > 0 && (!window || v <= 4096))
+    };
+    match (fits(width), fits(height)) {
+        (Some(w), Some(h)) if !window || u32::from(w) * u32::from(h) <= 1 << 20 => {
+            Event::Input(input(Size::new(w, h)))
+        }
+        _ => Event::Other(name),
+    }
 }
