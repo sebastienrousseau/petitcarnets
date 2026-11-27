@@ -12,11 +12,11 @@ version should read the way you expect.
 
 ## Status
 
-Early work, not yet published on crates.io. The current code is a working
-prototype: raw mode, keys, commands, timers and a line-diff renderer, on
-Linux and macOS. The public API is being renamed to Bubble Tea's names
-(`Program`, `Model`, `Msg`, `Cmd`, `View`) in v0.0.1, so expect it to
-change.
+Early work, not yet published on crates.io. v0.0.1 has the runtime: the
+Bubble Tea names, commands (`batch`, `sequence`, `tick`, `every`, tasks),
+keys, window size, signals, and a terminal that is restored however the
+program ends. Mouse, paste, a cell renderer and inline mode come in the
+next releases; expect the API to grow.
 
 ## Why
 
@@ -25,19 +25,59 @@ change.
   place with `unsafe`.
 - **Typed messages.** Your messages are your own enum, matched
   exhaustively; no downcasting.
-- **No async runtime required.** A command is a plain closure.
+- **No async runtime required.** A command is a plain closure. Timers
+  run on the event loop, not on threads, and an idle program does not
+  wake up at all.
 - **Restores your terminal.** Raw mode and every terminal mode are undone
-  on exit, on panic and on signals.
+  on quit, on panic (in `update` or in a task), on `SIGINT` and
+  `SIGTERM`; a real-terminal test checks each one in CI.
 - **Testable.** A headless backend runs a model with scripted keys and
   captures the screen, with no pseudo-terminal.
 
 ## Example
 
-```sh
-cargo run --example counter
+```rust
+use petitcarnets as tea;
+
+struct Counter(i64);
+
+impl tea::Model for Counter {
+    type Msg = ();
+
+    fn update(&mut self, msg: tea::Msg<()>) -> tea::Cmd<()> {
+        match msg {
+            tea::Msg::KeyPress(k) if k == "q" || k == "ctrl+c" => return tea::quit(),
+            tea::Msg::KeyPress(k) if k == "up" => self.0 += 1,
+            tea::Msg::KeyPress(k) if k == "down" => self.0 -= 1,
+            _ => {}
+        }
+        tea::Cmd::none()
+    }
+
+    fn view(&self) -> tea::View {
+        format!("Count: {}\n\nup/down to change, q to quit", self.0).into()
+    }
+}
+
+fn main() -> Result<(), tea::Error> {
+    tea::Program::new(Counter(0)).run()?;
+    Ok(())
+}
 ```
 
-`examples/` also has `picker` and `spinner`.
+Run the examples with `cargo run --example counter` (also `picker`,
+`spinner` and `lifecycle`).
+
+| Bubble Tea (Go) | petitcarnets |
+| --- | --- |
+| `tea.NewProgram(m).Run()` | `tea::Program::new(m).run()` |
+| `case tea.KeyPressMsg:` | `tea::Msg::KeyPress(k) =>` |
+| `msg.String() == "ctrl+c"` | `k == "ctrl+c"` |
+| `case tea.WindowSizeMsg:` | `tea::Msg::WindowSize(size) =>` |
+| `return m, tea.Quit` | `return tea::quit()` |
+| `tea.Batch(a, b)`, `tea.Sequence(a, b)` | `tea::batch([a, b])`, `tea::sequence([a, b])` |
+| `tea.Tick(d, fn)`, `tea.Every(d, fn)` | `tea::tick(d, f)`, `tea::every(d, f)` |
+| `p.Send(msg)` | `program.sender().send(msg)` |
 
 ## Platforms
 
