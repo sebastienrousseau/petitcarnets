@@ -6,7 +6,8 @@
 //! the screen.
 
 use crate::backend::{Backend, InputSink};
-use crate::guard::{ALT_SCREEN, HIDDEN_CURSOR, TerminalGuard};
+use crate::guard::{ALT_SCREEN, HIDDEN_CURSOR, ModeKey, TerminalGuard};
+use crate::mode::TerminalMode;
 use crate::msg::Size;
 use crate::reader::{self, STOP};
 use crate::sys::{self, Pipe, STDIN, STDOUT};
@@ -89,8 +90,9 @@ impl Backend for Terminal {
     fn enter(&mut self) -> io::Result<()> {
         self.find_terminal()?;
         let guard = TerminalGuard::enter(self.input, self.output)?;
-        guard.push(ALT_SCREEN)?;
-        guard.push(HIDDEN_CURSOR)?;
+        for (key, enter, leave) in [ALT_SCREEN, HIDDEN_CURSOR] {
+            guard.on(key, enter, leave)?;
+        }
         let wake = Pipe::new()?;
         if let Err(err) = sys::watch_signals(wake.write) {
             sys::unwatch_signals();
@@ -140,6 +142,23 @@ impl Backend for Terminal {
 
     fn output(&mut self) -> &mut dyn Write {
         &mut self.out
+    }
+
+    /// Writes the mode straight to the terminal, after any frame still
+    /// buffered, and records it in the guard, so it is turned off on
+    /// every way out.
+    fn set_mode(&mut self, mode: TerminalMode, on: bool) -> io::Result<()> {
+        self.out.flush()?;
+        let Some(running) = self.running.as_ref() else {
+            return Ok(());
+        };
+        let key = ModeKey::Mode(mode.kind());
+        match (mode, on) {
+            (TerminalMode::KeyboardFlags(_), true) => running.guard.write(&mode.sequence(true)),
+            (TerminalMode::KeyboardFlags(_), false) => Ok(()),
+            (_, true) => running.guard.on(key, &mode.sequence(true), mode.disable()),
+            (_, false) => running.guard.off(key),
+        }
     }
 }
 

@@ -1,6 +1,6 @@
 [package]
 name = "petitcarnets"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2024"
 rust-version = "1.85"
 description = "Terminal user interfaces in the Elm architecture (model, update, view), with no dependencies."
@@ -12,7 +12,15 @@ documentation = "https://docs.rs/petitcarnets"
 readme = "README.md"
 keywords = ["tui", "terminal", "elm", "cli", "ui"]
 categories = ["command-line-interface", "gui"]
-include = ["src/**/*", "examples/**/*", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = [
+    "src/**/*",
+    "examples/**/*",
+    "tests/fixtures/input.tsv",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE-MIT",
+    "LICENSE-APACHE",
+]
 
 # No dependencies, by design: the terminal is driven through a few libc
 # functions declared in src/sys.rs.

@@ -8,6 +8,7 @@
 
 use crate::backend::{Backend, Input};
 use crate::exec::{Event, Executor, Item};
+use crate::mode::Modes;
 use crate::msg::{Error, Msg};
 use crate::renderer::Renderer;
 use crate::{Cmd, Model};
@@ -135,14 +136,17 @@ impl<M: Model> Program<M> {
     /// As [`Program::run`]; the backend is left in every case.
     pub fn run_with(self, mut backend: impl Backend) -> Result<M, Error> {
         backend.enter()?;
-        let result = self.event_loop(&mut backend);
+        let mut terminal_modes = Modes::default();
+        let result = self.event_loop(&mut backend, &mut terminal_modes);
+        let cleared = terminal_modes.clear(&mut backend);
         let left = backend.leave();
         let model = result?;
+        cleared?;
         left?;
         Ok(model)
     }
 
-    fn event_loop(self, backend: &mut impl Backend) -> Result<M, Error> {
+    fn event_loop(self, backend: &mut impl Backend, modes: &mut Modes) -> Result<M, Error> {
         let Self {
             mut model,
             events,
@@ -156,6 +160,7 @@ impl<M: Model> Program<M> {
         let mut state = Loop {
             exec: Executor::new(events),
             renderer: Renderer::new(size),
+            modes,
             dirty: true,
         };
         state.exec.push(Item::Msg(Msg::WindowSize(size)));
@@ -171,13 +176,14 @@ impl<M: Model> Program<M> {
 }
 
 /// The loop's state besides the model.
-struct Loop<M> {
+struct Loop<'m, M> {
     exec: Executor<M>,
     renderer: Renderer,
+    modes: &'m mut Modes,
     dirty: bool,
 }
 
-impl<A: Send + 'static> Loop<A> {
+impl<A: Send + 'static> Loop<'_, A> {
     /// Updates, draws and waits until something ends the program.
     fn run<M: Model<Msg = A>>(
         &mut self,
@@ -228,8 +234,9 @@ impl<A: Send + 'static> Loop<A> {
         backend: &mut impl Backend,
     ) -> Result<(), Error> {
         if self.dirty {
-            self.renderer
-                .render(&model.view().content, backend.output())?;
+            let view = model.view();
+            self.modes.apply(&view, backend)?;
+            self.renderer.render(&view.content, backend.output())?;
             self.dirty = false;
         }
         Ok(())
@@ -267,12 +274,47 @@ impl<A: Send + 'static> Loop<A> {
     }
 }
 
-/// What a piece of terminal input means for the model.
+/// What a piece of terminal input means for the model: keys, mouse and
+/// paste here, the rest below.
 fn input_item<M>(input: Input) -> Item<M> {
-    match input {
-        Input::Key(key) => Item::Msg(Msg::KeyPress(key)),
-        Input::Resize(size) => Item::Msg(Msg::WindowSize(size)),
-        Input::Interrupt => Item::Interrupt,
-        Input::Terminate => Item::Quit,
-    }
+    let msg = match input {
+        Input::KeyPress(key) => Msg::KeyPress(key),
+        Input::KeyRelease(key) => Msg::KeyRelease(key),
+        Input::MouseClick(mouse) => Msg::MouseClick(mouse),
+        Input::MouseRelease(mouse) => Msg::MouseRelease(mouse),
+        Input::MouseWheel(mouse) => Msg::MouseWheel(mouse),
+        Input::MouseMotion(mouse) => Msg::MouseMotion(mouse),
+        Input::Paste(text) => Msg::Paste(text),
+        input => return focus_or_reply_item(input),
+    };
+    Item::Msg(msg)
+}
+
+/// Paste marks, focus, and the terminal's replies.
+fn focus_or_reply_item<M>(input: Input) -> Item<M> {
+    let msg = match input {
+        Input::PasteStart => Msg::PasteStart,
+        Input::PasteEnd => Msg::PasteEnd,
+        Input::Focus => Msg::Focus,
+        Input::Blur => Msg::Blur,
+        Input::CursorPosition { x, y } => Msg::CursorPosition { x, y },
+        Input::KeyboardEnhancements(report) => Msg::KeyboardEnhancements(report),
+        Input::ModeReport { mode, value } => Msg::ModeReport { mode, value },
+        input => return window_item(input),
+    };
+    Item::Msg(msg)
+}
+
+/// The terminal's name and colours, resizes, and signals.
+fn window_item<M>(input: Input) -> Item<M> {
+    Item::Msg(match input {
+        Input::TerminalVersion(name) => Msg::TerminalVersion(name),
+        Input::ForegroundColor(c) => Msg::ForegroundColor(c),
+        Input::BackgroundColor(c) => Msg::BackgroundColor(c),
+        Input::CursorColor(c) => Msg::CursorColor(c),
+        Input::Resize(size) => Msg::WindowSize(size),
+        Input::Interrupt => return Item::Interrupt,
+        Input::Terminate => return Item::Quit,
+        input => return input_item(input),
+    })
 }

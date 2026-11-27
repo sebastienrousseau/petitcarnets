@@ -5,10 +5,13 @@
 //! for Rust, with the same names.
 //!
 //! A program is a [`Model`]: its state, an [`update`](Model::update) that
-//! turns each [`Msg`] (a key, the window size, or a message of your own)
-//! into the next state and a [`Cmd`], and a [`view`](Model::view) that
-//! draws the state. A [`Program`] runs it: it reads keys, runs commands
-//! (work on other threads, timers) and redraws only what changed.
+//! turns each [`Msg`] (a key, a mouse event, a paste, the window size, or
+//! a message of your own) into the next state and a [`Cmd`], and a
+//! [`view`](Model::view) that draws the state and says which terminal
+//! modes it needs (mouse, focus reports, keyboard enhancements). A
+//! [`Program`] runs it: it reads and decodes input as Bubble Tea does,
+//! runs commands (work on other threads, timers) and redraws only what
+//! changed.
 //!
 //! Import the crate as `tea`, and the code reads like its Go original:
 //!
@@ -44,10 +47,14 @@
 
 mod backend;
 mod cmd;
+mod color;
 mod exec;
 #[cfg(unix)]
 mod guard;
+mod input;
 mod key;
+mod mode;
+mod mouse;
 mod msg;
 mod program;
 #[cfg(unix)]
@@ -58,10 +65,16 @@ pub mod style;
 mod sys;
 #[cfg(unix)]
 mod terminal;
+mod unicode;
 
 pub use backend::{Backend, Input, InputSink};
 pub use cmd::{Cmd, batch, every, interrupt, quit, sequence, tick};
-pub use key::{Key, parse as parse_keys};
+pub use color::Rgb;
+pub use key::{Key, KeyCode, KeyMod};
+pub use mode::{
+    KeyboardEnhancements, KeyboardEnhancementsReport, ModeSetting, ReportedMode, TerminalMode,
+};
+pub use mouse::{Mouse, MouseButton, MouseMode};
 pub use msg::{Error, Msg, Size, View};
 pub use program::{Program, Sender};
 #[cfg(unix)]
