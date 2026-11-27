@@ -1,13 +1,17 @@
 //! How the terminal is given back, whatever ends the program: quit with
 //! q, panic in `update` with p, panic in a task with t, or send the
-//! process `SIGINT` or `SIGTERM`. The real-terminal tests drive it.
+//! process `SIGINT` or `SIGTERM`. Pasted text is printed after it quits.
+//! The real-terminal tests drive it.
 //!
 //! `cargo run --example lifecycle`
 
 use petitcarnets as tea;
 use std::process::ExitCode;
 
-struct Lifecycle;
+#[derive(Default)]
+struct Lifecycle {
+    pastes: Vec<String>,
+}
 
 impl tea::Model for Lifecycle {
     type Msg = ();
@@ -19,6 +23,10 @@ impl tea::Model for Lifecycle {
                 tea::Cmd::task(|| panic!("t pressed: a panic in a task"))
             }
             tea::Msg::KeyPress(k) if k == "q" || k == "ctrl+c" => tea::quit(),
+            tea::Msg::Paste(text) => {
+                self.pastes.push(text);
+                tea::Cmd::none()
+            }
             _ => tea::Cmd::none(),
         }
     }
@@ -34,9 +42,12 @@ impl tea::Model for Lifecycle {
 }
 
 fn main() -> ExitCode {
-    match tea::Program::new(Lifecycle).run() {
-        Ok(_) => {
+    match tea::Program::new(Lifecycle::default()).run() {
+        Ok(model) => {
             println!("quit");
+            for text in model.pastes {
+                println!("pasted: {text}");
+            }
             ExitCode::SUCCESS
         }
         Err(tea::Error::Interrupted) => {
