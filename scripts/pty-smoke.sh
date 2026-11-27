@@ -7,10 +7,16 @@
 # do). Also checks that an idle program does not wake up, that mouse and
 # paste bytes reach the model, that every input mode is turned off on
 # the way out, and that an inline program prints above its frame and
-# leaves it in place. Linux only.
+# leaves it in place. Then the lifecycle: a child run with exec gets
+# exactly the keys typed while it runs and the program the rest, with
+# every mode back after; Ctrl-Z and `kill -TSTP` suspend and `kill
+# -CONT` resumes with a fresh frame; NO_COLOR leaves no colour in frames or
+# printed lines; and replies to queries never reach the shell. Linux
+# only.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-cargo build -q --example counter --example lifecycle --example mouse --example package-manager
+cargo build -q --example counter --example lifecycle --example mouse --example package-manager \
+  --example exec --example suspend --example query-term
 dir="$(mktemp -d)"
 trap 'rm -rf "$dir"' EXIT
 fails=0
@@ -29,6 +35,11 @@ switches() {
 # How many times the pattern occurs in a file (0 is not an error).
 count() {
   { grep -a -o "$1" "$2" || true; } | wc -l
+}
+
+# How many times these exact bytes occur in a file.
+count_fixed() {
+  { grep -a -o -F -- "$1" "$2" || true; } | wc -l
 }
 
 # Whether a log holds these exact bytes.
@@ -177,6 +188,148 @@ then
   echo "FAIL inline: the last frame was not kept with the cursor below it"; fails=$((fails + 1))
 else
   echo "ok   inline: 12 lines printed above the frame, last frame kept, cursor below it, terminal restored"
+fi
+
+# Each check below gives up after 30 seconds, so a lost key fails it
+# rather than hanging it.
+# Exec: the child (a shell `read`) gets the line typed while it runs,
+# the program the keys typed after it; mouse, paste and keyboard
+# enhancements are turned on again after it, and off at the end.
+printf 'read line\necho "got:$line"\n' > "$dir/child.sh"
+exec_keys() {
+  sleep 1; printf 'e'; sleep 0.7; printf 'abc\r'; sleep 0.7; printf 'xyz'; sleep 0.3
+  printf 'q'; sleep 1
+}
+log="$dir/exec.log"
+exec_keys | timeout 30 script -q -e -c \
+  "stty -g > $dir/before; ./target/debug/examples/exec sh $dir/child.sh; echo EXIT=\$?; stty -g > $dir/after" \
+  "$log" > /dev/null || true
+on_twice=1
+for seq in $'\e[?1002h' $'\e[?2004h' $'\e[>1u'; do
+  [[ "$(count_fixed "$seq" "$log")" == 2 ]] || on_twice=0
+done
+if ! grep -a -q 'EXIT=0' "$log" || ! cmp -s "$dir/before" "$dir/after"; then
+  echo "FAIL exec: exit or terminal mode not restored"; fails=$((fails + 1))
+elif [[ "$(grep -a -c 'got:abc' "$log")" != 1 ]] || grep -a -q 'got:abcx\|got:.*[xyz]' "$log"; then
+  echo "FAIL exec: the child did not get exactly 'abc'"; fails=$((fails + 1))
+elif ! grep -a -q 'keys after: x y z' "$log"; then
+  echo "FAIL exec: the program did not get exactly x y z after the child"; fails=$((fails + 1))
+elif [[ "$on_twice" != 1 ]] || [[ "$(count_fixed $'\e[?1002l' "$log")" != 2 ]]; then
+  echo "FAIL exec: modes were not turned off for the child and on again after"; fails=$((fails + 1))
+else
+  echo "ok   exec: child read 'abc', program got 'x y z' after, modes back on, terminal restored"
+fi
+
+# Suspend, by Ctrl-Z and by `kill -TSTP`: the process stops (state T),
+# `kill -CONT` continues it, the model hears Resume, the frame is drawn
+# again, and the terminal comes back as it was. A small parent puts the
+# program in a process group of its own in the foreground, as a shell
+# with job control does, but leaves it there while it is stopped, so a
+# bare `kill -CONT` resumes it (a shell's `fg` would send the same
+# signal after taking the terminal back for it).
+cat > "$dir/job.py" <<'JOB'
+import os, signal, sys
+signal.signal(signal.SIGTTOU, signal.SIG_IGN)
+pid = os.fork()
+if pid == 0:
+    os.setpgid(0, 0)
+    os.tcsetpgrp(0, os.getpid())
+    signal.signal(signal.SIGTTOU, signal.SIG_DFL)
+    os.execv(sys.argv[1], sys.argv[1:])
+try:
+    os.setpgid(pid, pid)
+except OSError:
+    pass
+_, status = os.waitpid(pid, 0)
+os.tcsetpgrp(0, os.getpgrp())
+sys.exit(os.waitstatus_to_exitcode(status))
+JOB
+ctrl_z() { sleep 1; printf '\032'; }
+sigtstp() { sleep 1; kill -TSTP "$(pid_of suspend)" || true; }
+suspend_check() {
+  local name="$1" stopper="$2" log="$dir/$1.log"
+  { "$stopper"; sleep 0.5; local pid; pid="$(pid_of suspend)"
+    awk '{ print $3 }' /proc/"$pid"/stat > "$dir/state" || true
+    kill -CONT "$pid" || true; sleep 0.5; printf 'q'; sleep 1; } |
+    timeout 30 script -q -e -c \
+      "stty -g > $dir/before; python3 $dir/job.py ./target/debug/examples/suspend; echo EXIT=\$?; stty -g > $dir/after" \
+      "$log" > /dev/null || true
+  pkill -KILL -f 'target/debug/examples/suspend$' || true
+  local frames
+  frames="$(count_fixed 'Press ctrl-z to suspend' "$log")"
+  if ! grep -a -q 'EXIT=0' "$log" || ! cmp -s "$dir/before" "$dir/after"; then
+    echo "FAIL $name: exit or terminal mode not restored"; fails=$((fails + 1))
+  elif [[ "$(cat "$dir/state")" != T ]]; then
+    echo "FAIL $name: not stopped (state $(cat "$dir/state"))"; fails=$((fails + 1))
+  elif ! grep -a -q 'resumed: 1' "$log" || [[ "$frames" -lt 2 ]]; then
+    echo "FAIL $name: no Resume, or the frame was not drawn again"; fails=$((fails + 1))
+  else
+    echo "ok   $name: stopped (state T), kill -CONT resumed it, Resume delivered, frame redrawn, terminal restored"
+  fi
+}
+suspend_check ctrl-z ctrl_z
+suspend_check sigtstp sigtstp
+
+# NO_COLOR: no colour parameter in any SGR sequence (frames and printed
+# lines alike), while bold still shows; without it, colours do appear.
+sgr_counts() {
+  python3 - "$1" <<'PY'
+import re, sys
+d = open(sys.argv[1], "rb").read()
+colour = attrs = 0
+for m in re.finditer(rb"\x1b\[([0-9;:]*)m", d):
+    for p in m.group(1).replace(b":", b";").split(b";"):
+        n = int(p) if p else 0
+        colour += n in (38, 39, 48, 49, 58, 59) or 30 <= n <= 37 or 40 <= n <= 47 \
+            or 90 <= n <= 97 or 100 <= n <= 107
+        attrs += 1 <= n <= 9
+print(colour, attrs)
+PY
+}
+for no_color in 1 ""; do
+  sleep 3 | NO_COLOR="$no_color" TERM=xterm-256color PACKAGE_DELAY_MS=20 script -q -e -c \
+    "./target/debug/examples/package-manager" "$dir/colour$no_color.log" > /dev/null || true
+done
+read -r plain bold <<< "$(sgr_counts "$dir/colour1.log")"
+read -r coloured _ <<< "$(sgr_counts "$dir/colour.log")"
+if [[ "$plain" == 0 && "$bold" -gt 0 && "$coloured" -gt 0 ]]; then
+  echo "ok   no-color: no SGR colour with NO_COLOR=1 ($coloured without), bold still written"
+else
+  echo "FAIL no-color: $plain colour parameters with NO_COLOR=1, $bold attributes"; fails=$((fails + 1))
+fi
+
+# Replies never reach the shell: the program asks seven questions and
+# quits at once. This feeder plays a terminal that answers 200 ms after
+# it is asked (as over SSH), and answers the program's sentinel query
+# (DA1) last if it was sent. Whatever arrives after the program has
+# ended is echoed by the shell's terminal, after EXIT.
+log="$dir/query.log"
+replies() {
+  for _ in $(seq 60); do
+    grep -a -q -F $'\e]11;?' "$log" 2> /dev/null && break; sleep 0.05
+  done
+  sleep 0.2
+  printf '\033]11;rgb:1111/2222/3333\033\\\033]10;rgb:eeee/eeee/eeee\033\\'
+  printf '\033]12;rgb:0000/ffff/0000\033\\\033[5;7R\033P>|fake-term 1.0\033\\'
+  printf '\033P1+r524742\033\\\033]52;c;aGVsbG8=\007'
+  if grep -a -q -F $'\e[c' "$log"; then printf '\033[?62;22c'; fi
+  sleep 1.5
+}
+replies | QUERY_TERM_EXIT=1 timeout 30 script -f -q -e -c \
+  "stty -g > $dir/before; ./target/debug/examples/query-term; echo EXIT=\$?; sleep 1; stty -g > $dir/after" \
+  "$log" > /dev/null || true
+after="$(python3 -c '
+import sys
+d = open(sys.argv[1], "rb").read()
+d = d[d.rfind(b"EXIT=") + 5:]
+print(d[:d.find(b"Script done")].replace(b"\x1b", b"^[").decode(errors="replace"))
+' "$log")"
+if ! grep -a -q 'EXIT=0' "$log" || ! cmp -s "$dir/before" "$dir/after"; then
+  echo "FAIL replies: exit or terminal mode not restored"; fails=$((fails + 1))
+elif [[ "$after" == *'^['* || "$after" == *rgb* || "$after" == *fake-term* ]]; then
+  echo "FAIL replies: reply bytes reached the shell: $(printf %q "$after" | head -c 300)"; fails=$((fails + 1))
+else
+  echo "ok   replies: seven queries, quit at once, no reply bytes after exit"
 fi
 
 [[ "$fails" == 0 ]] || { echo "$fails pty check(s) failed"; exit 1; }
