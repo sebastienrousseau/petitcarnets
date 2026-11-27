@@ -1,48 +1,57 @@
 //! # petitcarnets
 //!
 //! Terminal user interfaces in the Elm architecture, with no
-//! dependencies.
+//! dependencies: [Bubble Tea](https://github.com/charmbracelet/bubbletea)
+//! for Rust, with the same names.
 //!
 //! A program is a [`Model`]: its state, an [`update`](Model::update) that
-//! turns each [`Event`] (a key, a resize, or a message of your own) into
-//! the next state and a [`Cmd`], and a [`view`](Model::view) that draws
-//! the state as text. A [`Carnet`] runs it: it reads keys, runs commands
+//! turns each [`Msg`] (a key, the window size, or a message of your own)
+//! into the next state and a [`Cmd`], and a [`view`](Model::view) that
+//! draws the state. A [`Program`] runs it: it reads keys, runs commands
 //! (work on other threads, timers) and redraws only what changed.
 //!
+//! Import the crate as `tea`, and the code reads like its Go original:
+//!
 //! ```no_run
-//! use petitcarnets::{Carnet, Cmd, Event, Key, Model};
+//! use petitcarnets as tea;
 //!
 //! struct Counter(i64);
 //!
-//! impl Model for Counter {
+//! impl tea::Model for Counter {
 //!     type Msg = ();
 //!
-//!     fn update(&mut self, event: Event<()>) -> Cmd<()> {
-//!         match event {
-//!             Event::Key(Key::Up | Key::Char('+')) => self.0 += 1,
-//!             Event::Key(Key::Down | Key::Char('-')) => self.0 -= 1,
-//!             Event::Key(Key::Char('q')) => return Cmd::quit(),
-//!             _ => {},
+//!     fn update(&mut self, msg: tea::Msg<()>) -> tea::Cmd<()> {
+//!         match msg {
+//!             tea::Msg::KeyPress(k) if k == "q" || k == "ctrl+c" => return tea::quit(),
+//!             tea::Msg::KeyPress(k) if k == "up" || k == "+" => self.0 += 1,
+//!             tea::Msg::KeyPress(k) if k == "down" || k == "-" => self.0 -= 1,
+//!             _ => {}
 //!         }
-//!         Cmd::none()
+//!         tea::Cmd::none()
 //!     }
 //!
-//!     fn view(&self) -> String {
-//!         format!("Count: {}\n\n+/- or arrows to change, q to quit", self.0)
+//!     fn view(&self) -> tea::View {
+//!         format!("Count: {}\n\n+/- or arrows to change, q to quit", self.0).into()
 //!     }
 //! }
 //!
-//! let counter = Carnet::new(Counter(0)).run()?;
+//! let counter = tea::Program::new(Counter(0)).run()?;
 //! println!("final count: {}", counter.0);
-//! # Ok::<(), std::io::Error>(())
+//! # Ok::<(), tea::Error>(())
 //! ```
 //!
-//! *Petits carnets*: little notebooks. Unix (Linux and macOS) for now.
+//! *Petits carnets*: little notebooks. Linux, macOS and FreeBSD for now.
 
 mod backend;
-mod carnet;
 mod cmd;
+mod exec;
+#[cfg(unix)]
+mod guard;
 mod key;
+mod msg;
+mod program;
+#[cfg(unix)]
+mod reader;
 mod renderer;
 pub mod style;
 #[cfg(unix)]
@@ -50,10 +59,11 @@ mod sys;
 #[cfg(unix)]
 mod terminal;
 
-pub use backend::{Backend, KeySink};
-pub use carnet::Carnet;
-pub use cmd::Cmd;
+pub use backend::{Backend, Input, InputSink};
+pub use cmd::{Cmd, batch, every, interrupt, quit, sequence, tick};
 pub use key::{Key, parse as parse_keys};
+pub use msg::{Error, Msg, Size, View};
+pub use program::{Program, Sender};
 #[cfg(unix)]
 pub use terminal::Terminal;
 
@@ -62,25 +72,9 @@ pub mod testing {
     pub use crate::backend::{Screen, TestBackend};
 }
 
-/// What a model receives.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Event<M> {
-    /// A key was pressed.
-    Key(Key),
-    /// The window is now this size; also sent once at the start.
-    Resize {
-        /// Columns.
-        columns: u16,
-        /// Rows.
-        rows: u16,
-    },
-    /// A message of the model's own, from a [`Cmd`].
-    Msg(M),
-}
-
-/// A program's state and behaviour.
+/// A program's state and behaviour. Bubble Tea's `tea.Model`.
 pub trait Model {
-    /// The model's own messages, sent by its [`Cmd`]s.
+    /// The model's own messages, from its [`Cmd`]s and [`Sender`]s.
     type Msg: Send + 'static;
 
     /// A command to run at the start; none by default.
@@ -88,9 +82,9 @@ pub trait Model {
         Cmd::none()
     }
 
-    /// The next state for an event, and a command to run.
-    fn update(&mut self, event: Event<Self::Msg>) -> Cmd<Self::Msg>;
+    /// Changes the state for one message and returns a command to run.
+    fn update(&mut self, msg: Msg<Self::Msg>) -> Cmd<Self::Msg>;
 
-    /// The state as text, one line per row; ANSI styles are allowed.
-    fn view(&self) -> String;
+    /// What to show for the current state.
+    fn view(&self) -> View;
 }

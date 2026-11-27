@@ -1,15 +1,30 @@
-//! Where a program reads keys and writes frames: the real terminal, or a
+//! Where a program reads input and writes frames: the real terminal, or a
 //! scripted one for tests.
 
 use crate::key::Key;
+use crate::msg::Size;
 use std::io::{self, Write};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-/// Delivers a key to the running program; `false` once it has stopped.
-pub type KeySink = Box<dyn Fn(Key) -> bool + Send + 'static>;
+/// What a backend reports to the running program.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Input {
+    /// A key was pressed.
+    Key(Key),
+    /// The window changed to this size.
+    Resize(Size),
+    /// `SIGINT`: stop with [`Error::Interrupted`](crate::Error::Interrupted).
+    Interrupt,
+    /// `SIGTERM`: stop as if the model had quit.
+    Terminate,
+}
 
-/// A terminal a [`Carnet`](crate::Carnet) can run in.
+/// Delivers input to the running program; `false` once it has stopped.
+pub type InputSink = Box<dyn Fn(Input) -> bool + Send + 'static>;
+
+/// A terminal a [`Program`](crate::Program) can run in.
 pub trait Backend {
     /// Takes over the screen (raw mode, alternate screen, hidden cursor).
     ///
@@ -18,28 +33,29 @@ pub trait Backend {
     /// If the terminal cannot be set up.
     fn enter(&mut self) -> io::Result<()>;
 
-    /// Gives the screen back as it was.
+    /// Stops input and gives the screen back as it was.
     ///
     /// # Errors
     ///
     /// If the terminal cannot be restored.
     fn leave(&mut self) -> io::Result<()>;
 
-    /// The window's size as `(columns, rows)`.
+    /// The window's size.
     ///
     /// # Errors
     ///
     /// If the size cannot be read.
-    fn size(&mut self) -> io::Result<(u16, u16)>;
+    fn size(&mut self) -> io::Result<Size>;
 
-    /// Starts delivering key presses to `sink`, usually from a thread.
-    fn start_input(&mut self, sink: KeySink);
+    /// Starts delivering input to `sink`, usually from a thread, until
+    /// [`Backend::leave`].
+    fn start_input(&mut self, sink: InputSink);
 
     /// Where frames are written.
     fn output(&mut self) -> &mut dyn Write;
 }
 
-/// A scripted terminal for testing models: a fixed size, keys sent in
+/// A scripted terminal for testing models: a fixed size, input sent in
 /// order, and everything written captured.
 ///
 /// ```
@@ -48,13 +64,13 @@ pub trait Backend {
 ///
 /// let backend = TestBackend::new(40, 10).keys([Key::Char('q')]);
 /// let screen = backend.screen();
-/// // ... run a Carnet with `backend`, then read `screen.text()`.
+/// // ... run a Program with `backend`, then read `screen.text()`.
 /// # let _ = screen;
 /// ```
 #[derive(Debug, Clone)]
 pub struct TestBackend {
-    size: (u16, u16),
-    keys: Vec<Key>,
+    size: Size,
+    inputs: Vec<Input>,
     gap: Duration,
     screen: Screen,
 }
@@ -92,12 +108,12 @@ impl Write for Screen {
 }
 
 impl TestBackend {
-    /// A `columns` by `rows` terminal with no keys.
+    /// A `columns` by `rows` terminal with no input.
     #[must_use]
     pub fn new(columns: u16, rows: u16) -> Self {
         Self {
-            size: (columns, rows),
-            keys: Vec::new(),
+            size: Size::new(columns, rows),
+            inputs: Vec::new(),
             gap: Duration::from_millis(5),
             screen: Screen::default(),
         }
@@ -105,13 +121,19 @@ impl TestBackend {
 
     /// The keys to press, in order.
     #[must_use]
-    pub fn keys(mut self, keys: impl IntoIterator<Item = Key>) -> Self {
-        self.keys = keys.into_iter().collect();
+    pub fn keys(self, keys: impl IntoIterator<Item = Key>) -> Self {
+        self.inputs(keys.into_iter().map(Input::Key))
+    }
+
+    /// The input to send, in order: keys, resizes and signals.
+    #[must_use]
+    pub fn inputs(mut self, inputs: impl IntoIterator<Item = Input>) -> Self {
+        self.inputs = inputs.into_iter().collect();
         self
     }
 
-    /// The pause between key presses (5 ms by default), so each update's
-    /// commands can run between them.
+    /// The pause before each input (5 ms by default), so each update's
+    /// commands can run in between.
     #[must_use]
     pub const fn gap(mut self, gap: Duration) -> Self {
         self.gap = gap;
@@ -134,16 +156,16 @@ impl Backend for TestBackend {
         Ok(())
     }
 
-    fn size(&mut self) -> io::Result<(u16, u16)> {
+    fn size(&mut self) -> io::Result<Size> {
         Ok(self.size)
     }
 
-    fn start_input(&mut self, sink: KeySink) {
-        let (keys, gap) = (self.keys.clone(), self.gap);
+    fn start_input(&mut self, sink: InputSink) {
+        let (inputs, gap) = (self.inputs.clone(), self.gap);
         drop(std::thread::spawn(move || {
-            for key in keys {
+            for input in inputs {
                 std::thread::sleep(gap);
-                if !sink(key) {
+                if !sink(input) {
                     break;
                 }
             }

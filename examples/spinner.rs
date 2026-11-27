@@ -2,9 +2,9 @@
 //!
 //! `cargo run --example spinner`
 
-use petitcarnets::style::{Color, Style};
-use petitcarnets::{Carnet, Cmd, Event, Key, Model};
+use petitcarnets as tea;
 use std::time::Duration;
+use tea::style::{Color, Style};
 
 const FRAMES: [&str; 8] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"];
 
@@ -18,37 +18,37 @@ struct Loader {
     result: Option<u64>,
 }
 
-fn tick() -> Cmd<Msg> {
-    Cmd::tick(Duration::from_millis(80), || Msg::Tick)
+fn tick() -> tea::Cmd<Msg> {
+    tea::tick(Duration::from_millis(80), |_| Msg::Tick)
 }
 
-impl Model for Loader {
+impl tea::Model for Loader {
     type Msg = Msg;
 
-    fn init(&mut self) -> Cmd<Msg> {
-        let slow = Cmd::task(|| {
+    fn init(&mut self) -> tea::Cmd<Msg> {
+        let slow = tea::Cmd::task(|| {
             std::thread::sleep(Duration::from_secs(2));
             Msg::Loaded((1..=20).product())
         });
-        Cmd::batch([tick(), slow])
+        tea::batch([tick(), slow])
     }
 
-    fn update(&mut self, event: Event<Msg>) -> Cmd<Msg> {
-        match event {
-            Event::Msg(Msg::Tick) if self.result.is_none() => {
+    fn update(&mut self, msg: tea::Msg<Msg>) -> tea::Cmd<Msg> {
+        match msg {
+            tea::Msg::App(Msg::Tick) if self.result.is_none() => {
                 self.frame = (self.frame + 1) % FRAMES.len();
                 tick()
             }
-            Event::Msg(Msg::Loaded(n)) => {
+            tea::Msg::App(Msg::Loaded(n)) => {
                 self.result = Some(n);
-                Cmd::none()
+                tea::Cmd::none()
             }
-            Event::Key(Key::Char('q') | Key::Esc) => Cmd::quit(),
-            _ => Cmd::none(),
+            tea::Msg::KeyPress(k) if k == "q" || k == "esc" || k == "ctrl+c" => tea::quit(),
+            _ => tea::Cmd::none(),
         }
     }
 
-    fn view(&self) -> String {
+    fn view(&self) -> tea::View {
         match self.result {
             None => format!(
                 "\n  {} Computing 20!...",
@@ -60,11 +60,12 @@ impl Model for Loader {
                 Style::new().dim().paint("q to quit")
             ),
         }
+        .into()
     }
 }
 
-fn main() -> std::io::Result<()> {
-    let _ = Carnet::new(Loader {
+fn main() -> Result<(), tea::Error> {
+    let _ = tea::Program::new(Loader {
         frame: 0,
         result: None,
     })

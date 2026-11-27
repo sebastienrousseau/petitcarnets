@@ -41,6 +41,65 @@ pub enum Key {
     F(u8),
 }
 
+/// Names as Bubble Tea's `Key.String()` writes them.
+const NAMES: [(Key, &str); 16] = [
+    (Key::Char(' '), "space"),
+    (Key::Enter, "enter"),
+    (Key::Esc, "esc"),
+    (Key::Backspace, "backspace"),
+    (Key::Tab, "tab"),
+    (Key::BackTab, "shift+tab"),
+    (Key::Up, "up"),
+    (Key::Down, "down"),
+    (Key::Left, "left"),
+    (Key::Right, "right"),
+    (Key::Home, "home"),
+    (Key::End, "end"),
+    (Key::PageUp, "pgup"),
+    (Key::PageDown, "pgdown"),
+    (Key::Insert, "insert"),
+    (Key::Delete, "delete"),
+];
+
+impl std::fmt::Display for Key {
+    /// The key as Bubble Tea writes it: `"a"`, `"space"`, `"ctrl+c"`,
+    /// `"shift+tab"`, `"pgup"`, `"f5"`.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some((_, name)) = NAMES.iter().find(|(k, _)| k == self) {
+            return f.write_str(name);
+        }
+        match self {
+            Self::Char(c) => write!(f, "{c}"),
+            Self::Ctrl(c) => write!(f, "ctrl+{c}"),
+            Self::F(n) => write!(f, "f{n}"),
+            _ => Ok(()),
+        }
+    }
+}
+
+impl PartialEq<&str> for Key {
+    /// Whether the key is written `name`, so `key == "ctrl+c"` reads as
+    /// Go's `msg.String() == "ctrl+c"`. Compares as it writes, without
+    /// allocating.
+    fn eq(&self, name: &&str) -> bool {
+        use std::fmt::Write as _;
+        let mut rest = Prefix(Some(name));
+        let _ = write!(rest, "{self}");
+        rest.0 == Some("")
+    }
+}
+
+/// What is left of a name after the text written so far; `None` once the
+/// text stops matching.
+struct Prefix<'a>(Option<&'a str>);
+
+impl std::fmt::Write for Prefix<'_> {
+    fn write_str(&mut self, s: &str) -> std::fmt::Result {
+        self.0 = self.0.and_then(|rest| rest.strip_prefix(s));
+        Ok(())
+    }
+}
+
 /// The keys in `bytes`. A sequence cut off at the end of the buffer is
 /// left unread: the number of bytes consumed is returned with the keys,
 /// and the rest should be kept for the next read. A lone Escape at the
@@ -255,9 +314,34 @@ mod tests {
     }
 
     #[test]
+    fn keys_are_written_as_bubble_tea_writes_them() {
+        let cases = [
+            (Key::Char('a'), "a"),
+            (Key::Char('?'), "?"),
+            (Key::Char(' '), "space"),
+            (Key::Ctrl('c'), "ctrl+c"),
+            (Key::Enter, "enter"),
+            (Key::Esc, "esc"),
+            (Key::Backspace, "backspace"),
+            (Key::Tab, "tab"),
+            (Key::BackTab, "shift+tab"),
+            (Key::Up, "up"),
+            (Key::PageUp, "pgup"),
+            (Key::PageDown, "pgdown"),
+            (Key::Delete, "delete"),
+            (Key::F(5), "f5"),
+        ];
+        for (key, name) in cases {
+            assert_eq!(key.to_string(), name);
+            assert!(key == name, "{key:?} == {name:?}");
+        }
+        assert!(Key::Char('q') != "ctrl+q");
+    }
+
+    #[test]
     fn unknown_sequences_are_consumed_without_a_key() {
         assert_eq!(parse(b"\x1b[99~a", true), (vec![Key::Char('a')], 6));
-        assert_eq!(keys(b"\x1b[M"), vec![]);
+        assert_eq!(keys(b"\x1b[M"), Vec::<Key>::new());
         assert_eq!(keys(&[0xff, b'a']), vec![Key::Char('a')]);
     }
 }

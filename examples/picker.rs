@@ -2,8 +2,8 @@
 //!
 //! `cargo run --example picker`
 
-use petitcarnets::style::{Color, Style};
-use petitcarnets::{Carnet, Cmd, Event, Key, Model};
+use petitcarnets as tea;
+use tea::style::{Color, Style};
 
 struct Picker {
     items: Vec<&'static str>,
@@ -11,27 +11,30 @@ struct Picker {
     chosen: Option<usize>,
 }
 
-impl Model for Picker {
+impl tea::Model for Picker {
     type Msg = ();
 
-    fn update(&mut self, event: Event<()>) -> Cmd<()> {
+    fn update(&mut self, msg: tea::Msg<()>) -> tea::Cmd<()> {
+        let tea::Msg::KeyPress(key) = msg else {
+            return tea::Cmd::none();
+        };
         let last = self.items.len().saturating_sub(1);
-        match event {
-            Event::Key(Key::Up | Key::Char('k')) => self.cursor = self.cursor.saturating_sub(1),
-            Event::Key(Key::Down | Key::Char('j')) => self.cursor = (self.cursor + 1).min(last),
-            Event::Key(Key::Home) => self.cursor = 0,
-            Event::Key(Key::End) => self.cursor = last,
-            Event::Key(Key::Enter) => {
+        match key.to_string().as_str() {
+            "up" | "k" => self.cursor = self.cursor.saturating_sub(1),
+            "down" | "j" => self.cursor = (self.cursor + 1).min(last),
+            "home" => self.cursor = 0,
+            "end" => self.cursor = last,
+            "enter" => {
                 self.chosen = Some(self.cursor);
-                return Cmd::quit();
+                return tea::quit();
             }
-            Event::Key(Key::Char('q') | Key::Esc) => return Cmd::quit(),
+            "q" | "esc" | "ctrl+c" => return tea::quit(),
             _ => {}
         }
-        Cmd::none()
+        tea::Cmd::none()
     }
 
-    fn view(&self) -> String {
+    fn view(&self) -> tea::View {
         let title = Style::new().bold().paint("Choose an allocation method");
         let selected = Style::new().fg(Color::CYAN).bold();
         let rows: Vec<String> = self
@@ -48,12 +51,12 @@ impl Model for Picker {
             .collect();
         let help = Style::new()
             .dim()
-            .paint("up/down to move, Enter to choose, q to quit");
-        format!("\n  {title}\n\n  {}\n\n  {help}", rows.join("\n  "))
+            .paint("up/down to move, enter to choose, q to quit");
+        format!("\n  {title}\n\n  {}\n\n  {help}", rows.join("\n  ")).into()
     }
 }
 
-fn main() -> std::io::Result<()> {
+fn main() -> Result<(), tea::Error> {
     let items = vec![
         "equal-weight",
         "min-variance",
@@ -61,7 +64,7 @@ fn main() -> std::io::Result<()> {
         "risk-parity",
         "hrp",
     ];
-    let picker = Carnet::new(Picker {
+    let picker = tea::Program::new(Picker {
         items,
         cursor: 1,
         chosen: None,
