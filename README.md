@@ -12,11 +12,12 @@ version should read the way you expect.
 
 ## Status
 
-Early work, not yet published on crates.io. v0.0.1 has the runtime: the
-Bubble Tea names, commands (`batch`, `sequence`, `tick`, `every`, tasks),
-keys, window size, signals, and a terminal that is restored however the
-program ends. Mouse, paste, a cell renderer and inline mode come in the
-next releases; expect the API to grow.
+Early work, on [crates.io](https://crates.io/crates/petitcarnets) since
+v0.0.1. It has the runtime (Bubble Tea's names, commands, window size,
+signals, a terminal restored however the program ends) and, from v0.0.2,
+Bubble Tea's input: keys with modifiers and releases, mouse, paste,
+focus, and the terminal's replies. A cell renderer and inline mode come
+next; expect the API to grow.
 
 ## Why
 
@@ -66,13 +67,17 @@ fn main() -> Result<(), tea::Error> {
 ```
 
 Run the examples with `cargo run --example counter` (also `picker`,
-`spinner` and `lifecycle`).
+`spinner`, `lifecycle`, `mouse` and `keyboard-enhancements`).
 
 | Bubble Tea (Go) | petitcarnets |
 | --- | --- |
 | `tea.NewProgram(m).Run()` | `tea::Program::new(m).run()` |
 | `case tea.KeyPressMsg:` | `tea::Msg::KeyPress(k) =>` |
 | `msg.String() == "ctrl+c"` | `k == "ctrl+c"` |
+| `msg.Keystroke()`, `msg.MatchString("q", "esc")` | `k.keystroke()`, `k.matches_any(&["q", "esc"])` |
+| `case tea.MouseClickMsg:` | `tea::Msg::MouseClick(m) =>` |
+| `case tea.PasteMsg:` | `tea::Msg::Paste(text) =>` |
+| `v.MouseMode = tea.MouseModeAllMotion` | `view.with_mouse_mode(tea::MouseMode::AllMotion)` |
 | `case tea.WindowSizeMsg:` | `tea::Msg::WindowSize(size) =>` |
 | `return m, tea.Quit` | `return tea::quit()` |
 | `tea.Batch(a, b)`, `tea.Sequence(a, b)` | `tea::batch([a, b])`, `tea::sequence([a, b])` |
