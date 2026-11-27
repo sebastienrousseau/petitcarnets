@@ -1,0 +1,59 @@
+name: Release
+
+# Publishes to crates.io when a version tag is pushed, through crates.io
+# trusted publishing: GitHub proves who is publishing with a short-lived
+# OIDC token, so no crates.io token is stored anywhere. The crates-io
+# environment only deploys v* tags and waits for the maintainer's
+# approval. The tag must name the crate's version, sit on main, and carry
+# a signature GitHub has verified.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    environment: crates-io
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: The tag names the crate's version
+        run: |
+          version="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')"
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "tag $GITHUB_REF_NAME does not match Cargo.toml version $version"
+            exit 1
+          fi
+      - name: The tag is on main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - name: The tag is annotated and its signature verified
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          read -r type sha < <(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$GITHUB_REF_NAME" \
+            --jq '.object | "\(.type) \(.sha)"')
+          if [ "$type" != tag ]; then
+            echo "$GITHUB_REF_NAME is not an annotated tag"
+            exit 1
+          fi
+          verified="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$sha" --jq '.verification.verified')"
+          if [ "$verified" != true ]; then
+            echo "$GITHUB_REF_NAME has no signature GitHub could verify"
+            exit 1
+          fi
+      - name: Request a short-lived crates.io token
+        id: auth
+        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
+      - name: Publish
+        run: cargo publish --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
