@@ -52,7 +52,8 @@ impl tea::Model for Picker {
         let help = Style::new()
             .dim()
             .paint("up/down to move, enter to choose, q to quit");
-        format!("\n  {title}\n\n  {}\n\n  {help}", rows.join("\n  ")).into()
+        let content = format!("\n  {title}\n\n  {}\n\n  {help}", rows.join("\n  "));
+        tea::View::new(content).with_alt_screen(true)
     }
 }
 

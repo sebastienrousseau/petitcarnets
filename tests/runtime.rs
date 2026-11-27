@@ -114,7 +114,10 @@ fn keys_update_the_model_and_the_screen_shows_the_last_view() {
     let (up, down) = (Key::new(KeyCode::Up), Key::new(KeyCode::Down));
     let (model, screen) = run([up.clone(), up.clone(), down, up, Key::char('q')]);
     assert_eq!(model.count, 2);
-    assert!(screen.contains("count 2"), "{screen}");
+    // Frames rewrite only the cells that change: "count 0", then "1",
+    // "2", "1", "2".
+    assert!(screen.trim_start().starts_with("count 0"), "{screen}");
+    assert!(screen.trim_end().ends_with("1212"), "{screen}");
 }
 
 #[test]
@@ -241,8 +244,10 @@ fn run_bytes(view: tea::View, chunks: &[&[u8]]) -> (Probe, String) {
     };
     let model = tea::Program::new(probe).run_with(backend).unwrap();
     let raw = screen.raw();
-    // The first window size clears the screen before anything else.
-    let raw = raw.strip_prefix("\x1b[2J").unwrap_or(&raw).to_string();
+    // Autowrap goes off before anything else, and back on at the very end.
+    let raw = raw.strip_prefix("\x1b[?7l").expect("autowrap off first");
+    let raw = raw.strip_suffix("\x1b[?7h").expect("autowrap on last");
+    let raw = raw.to_string();
     (model, raw)
 }
 
@@ -368,4 +373,205 @@ fn changed_keyboard_flags_update_the_entry_in_place() {
     assert_eq!(raw.matches("\x1b[>1u").count(), 1, "{raw:?}");
     assert!(raw.contains("\x1b[>4;2m\x1b[=5;1u"), "{raw:?}");
     assert_eq!(raw.matches("\x1b[<u").count(), 1, "popped once, at the end");
+}
+
+/// A model whose keys print, write raw bytes, clear the screen, toggle
+/// the alternate screen and quit; its view shows a count of updates.
+#[derive(Debug, Default)]
+struct Printer {
+    alt: bool,
+    n: u32,
+    ticks: u32,
+}
+
+impl tea::Model for Printer {
+    type Msg = u32;
+
+    fn update(&mut self, msg: tea::Msg<u32>) -> tea::Cmd<u32> {
+        self.n += 1;
+        match msg {
+            tea::Msg::KeyPress(k) => match k.to_string().as_str() {
+                "p" => tea::printf!("printed {}", self.n),
+                "r" => tea::raw("<RAW>"),
+                "c" => tea::clear_screen(),
+                "a" => {
+                    self.alt = !self.alt;
+                    tea::Cmd::none()
+                }
+                "q" => tea::sequence([tea::println("bye"), tea::raw("<LAST>"), tea::quit()]),
+                _ => tea::Cmd::none(),
+            },
+            tea::Msg::App(left) if left > 0 => {
+                self.ticks += 1;
+                tea::tick(ms(1), move |_| left - 1)
+            }
+            tea::Msg::App(_) => tea::quit(),
+            _ => tea::Cmd::none(),
+        }
+    }
+
+    fn view(&self) -> tea::View {
+        tea::View::new(format!("frame {} ticks {}\n", self.n, self.ticks)).with_alt_screen(self.alt)
+    }
+}
+
+fn run_printer(backend: TestBackend) -> String {
+    let screen = backend.screen();
+    let _ = tea::Program::new(Printer::default())
+        .run_with(backend)
+        .unwrap();
+    screen.raw()
+}
+
+#[test]
+fn views_are_inline_by_default() {
+    let raw = run_printer(TestBackend::new(20, 5).keys([Key::char('q')]));
+    assert!(!raw.contains("1049"), "{raw:?}");
+    assert!(raw.contains("frame 1"), "{raw:?}");
+}
+
+#[test]
+fn the_view_switches_the_alternate_screen_on_and_off() {
+    let keys = [
+        Key::char('a'),
+        Key::char('x'),
+        Key::char('a'),
+        Key::char('q'),
+    ];
+    let raw = run_printer(TestBackend::new(20, 5).keys(keys));
+    let on = raw.find("\x1b[?1049h").expect("entered");
+    let off = raw.find("\x1b[?1049l").expect("left");
+    assert!(on < off);
+    assert_eq!(raw.matches("\x1b[?1049h").count(), 1);
+    assert_eq!(raw.matches("\x1b[?1049l").count(), 1);
+}
+
+#[test]
+fn the_alternate_screen_is_left_at_the_end() {
+    let raw = run_printer(TestBackend::new(20, 5).keys([Key::char('a'), Key::char('q')]));
+    let off = raw.rfind("\x1b[?1049l").expect("left at the end");
+    assert!(raw[off..].ends_with("\x1b[?7h"), "{raw:?}");
+}
+
+#[test]
+fn println_comes_after_the_frame_before_it_and_before_quitting() {
+    let raw = run_printer(TestBackend::new(30, 5).keys([Key::char('p'), Key::char('q')]));
+    let frame = raw.find("frame 1").expect("first frame");
+    let printed = raw.find("printed 2").expect("printed");
+    let bye = raw.find("bye").expect("bye");
+    let last = raw.find("<LAST>").expect("raw");
+    let restore = raw.rfind("\x1b[?2004l").expect("modes turned off");
+    assert!(frame < printed && printed < bye && bye < last && last < restore);
+}
+
+#[test]
+fn raw_bytes_are_written_before_the_terminal_is_restored() {
+    let raw = run_printer(TestBackend::new(20, 5).keys([Key::char('r'), Key::char('q')]));
+    let at = raw.find("<RAW>").expect("written");
+    assert!(at < raw.rfind("\x1b[?7h").unwrap());
+}
+
+#[test]
+fn clear_screen_clears_and_writes_the_modes_again() {
+    let raw = run_printer(TestBackend::new(20, 5).keys([Key::char('c'), Key::char('q')]));
+    let clear = raw.find("\x1b[H\x1b[2J").expect("cleared");
+    assert_eq!(raw.matches("\x1b[?2004h").count(), 2, "{raw:?}");
+    assert!(raw.rfind("\x1b[?2004h").unwrap() < clear);
+}
+
+/// Runs a printer that ticks `n` times, 1 ms apart, at `fps`, with
+/// synchronized output on so frames can be counted, and `keys` keys
+/// 20 ms apart.
+fn ticking(n: u32, fps: u32, keys: usize) -> (String, Printer) {
+    let mut backend = TestBackend::new(30, 5).inputs([Input::ModeReport {
+        mode: tea::ReportedMode::Dec(2026),
+        value: tea::ModeSetting::Reset,
+    }]);
+    if keys > 0 {
+        backend = backend
+            .gap(ms(20))
+            .keys(std::iter::repeat_n(Key::char('x'), keys))
+            .keys([Key::char('q')]);
+    }
+    let screen = backend.screen();
+    let program = tea::Program::new(Printer::default()).with_fps(fps);
+    if n > 0 {
+        program.sender().send(n);
+    }
+    let model = program.run_with(backend).unwrap();
+    (screen.raw(), model)
+}
+
+#[test]
+fn with_fps_limits_how_often_frames_are_drawn() {
+    let started = std::time::Instant::now();
+    let (raw, model) = ticking(300, 10, 0);
+    let tenths = usize::try_from(started.elapsed().as_millis() / 100).unwrap();
+    let frames = raw.matches("\x1b[?2026h").count();
+    assert!(model.ticks >= 300);
+    assert!(
+        frames <= tenths + 3,
+        "{frames} frames in {tenths} tenths at 10 fps"
+    );
+    assert!(frames >= 2, "{frames}");
+}
+
+#[test]
+fn a_frame_after_a_key_is_drawn_at_once() {
+    // At 1 fps, five keys 20 ms apart still each get a frame at once.
+    let started = std::time::Instant::now();
+    let (raw, _) = ticking(0, 1, 5);
+    let frames = raw.matches("\x1b[?2026h").count();
+    assert!(started.elapsed() < ms(900), "never held back for a second");
+    assert!(frames >= 6, "{frames} frames: {raw:?}");
+}
+
+/// Shows one line, without a trailing newline, until `x` empties it.
+#[derive(Debug, Default)]
+struct OneLine(bool);
+
+impl tea::Model for OneLine {
+    type Msg = ();
+
+    fn update(&mut self, msg: tea::Msg<()>) -> tea::Cmd<()> {
+        match msg {
+            tea::Msg::KeyPress(k) if k == "x" => self.0 = true,
+            tea::Msg::KeyPress(k) if k == "q" => return tea::quit(),
+            _ => {}
+        }
+        tea::Cmd::none()
+    }
+
+    fn view(&self) -> tea::View {
+        tea::View::new(if self.0 { "" } else { "last line" })
+    }
+}
+
+fn run_one_line(keys: &str) -> String {
+    let backend = TestBackend::new(20, 5).keys(keys.chars().map(Key::char));
+    let screen = backend.screen();
+    let _ = tea::Program::new(OneLine::default())
+        .run_with(backend)
+        .unwrap();
+    screen.raw()
+}
+
+#[test]
+fn quitting_inline_keeps_the_last_line_and_moves_below_it() {
+    let raw = run_one_line("q");
+    let line = raw.rfind("last line").expect("drawn");
+    let below = raw.rfind("\r\n\x1b[J").expect("a fresh line, erased below");
+    assert!(line < below, "{raw:?}");
+    assert!(
+        !raw[line..below].contains('\r'),
+        "not erased first: {raw:?}"
+    );
+}
+
+#[test]
+fn an_empty_last_view_erases_the_frame_and_stays_where_it_started() {
+    let raw = run_one_line("xq");
+    assert!(!raw.contains("\r\n"), "never moves below: {raw:?}");
+    let erase = raw.rfind("\x1b[J").expect("erased");
+    assert!(erase > raw.rfind("last line").unwrap());
 }

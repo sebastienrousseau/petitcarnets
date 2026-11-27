@@ -161,60 +161,83 @@ impl Style {
     }
 }
 
-/// The number of terminal columns `text` takes: its characters, without
-/// ANSI escape sequences. Wide characters (CJK, most emoji) count as one;
-/// petitcarnets does not yet measure display width.
+pub use crate::unicode::WidthMethod;
+
+use crate::ansi::{Token, spans};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Whether the running program measures with grapheme widths.
+static GRAPHEME_WIDTH: AtomicBool = AtomicBool::new(false);
+
+/// How [`width`] and [`truncate`] measure text: the method the running
+/// program chose, [`WidthMethod::WcWidth`] unless the terminal reported
+/// that it supports grapheme clusters (mode 2027). One process has one
+/// terminal, so the choice is shared by the whole process.
+#[must_use]
+pub fn width_method() -> WidthMethod {
+    if GRAPHEME_WIDTH.load(Ordering::Relaxed) {
+        WidthMethod::GraphemeWidth
+    } else {
+        WidthMethod::WcWidth
+    }
+}
+
+/// Makes `method` the one [`width`] and [`truncate`] use.
+pub(crate) fn set_width_method(method: WidthMethod) {
+    GRAPHEME_WIDTH.store(method == WidthMethod::GraphemeWidth, Ordering::Relaxed);
+}
+
+/// The number of terminal cells `text` takes, without its escape
+/// sequences, measured with [`width_method`]: wide characters (CJK, most
+/// emoji) take two.
 #[must_use]
 pub fn width(text: &str) -> usize {
-    strip_ansi(text).chars().count()
+    width_method().string_width(text)
 }
 
 /// `text` without its ANSI escape sequences.
 #[must_use]
 pub fn strip_ansi(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\x1b' && chars.peek() == Some(&'[') {
-            let _ = chars.next();
-            for c in chars.by_ref() {
-                if ('\x40'..='\x7e').contains(&c) {
-                    break;
-                }
-            }
-        } else {
-            out.push(c);
-        }
-    }
-    out
+    spans(text, WidthMethod::WcWidth)
+        .filter(|(token, _)| matches!(token, Token::Text(..) | Token::Control(_)))
+        .map(|(_, raw)| raw)
+        .collect()
 }
 
-/// The first `columns` visible columns of `text`, keeping its escape
-/// sequences, with a reset at the end if any style was cut short.
+/// The first `columns` cells of `text`, measured with [`width_method`],
+/// keeping its escape sequences, with a reset at the end if any text was
+/// cut. A wide character that would cross the limit is left out whole.
 #[must_use]
 pub fn truncate(text: &str, columns: usize) -> String {
-    if width(text) <= columns {
+    let method = width_method();
+    if method.string_width(text) <= columns {
         return text.to_string();
     }
-    let mut out = String::new();
-    let mut shown = 0;
-    let mut chars = text.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\x1b' && chars.peek() == Some(&'[') {
-            out.push(c);
-            out.push(chars.next().unwrap_or('['));
-            for c in chars.by_ref() {
-                out.push(c);
-                if ('\x40'..='\x7e').contains(&c) {
-                    break;
-                }
-            }
-        } else if shown < columns {
-            out.push(c);
-            shown += 1;
+    let mut out = String::with_capacity(text.len());
+    let mut room = Some(columns);
+    for (token, raw) in spans(text, method) {
+        if keep(token, &mut room) {
+            out.push_str(raw);
         }
     }
     out + "\x1b[0m"
+}
+
+/// Whether [`truncate`] keeps `token`, with `room` columns left (`None`
+/// once text has been cut, after which only escape sequences are kept).
+fn keep(token: Token<'_>, room: &mut Option<usize>) -> bool {
+    match (token, *room) {
+        (Token::Text(_, w), Some(left)) if w <= left => {
+            *room = Some(left - w);
+            true
+        }
+        (Token::Text(..), _) => {
+            *room = None;
+            false
+        }
+        (Token::Control(_), None) => false,
+        _ => true,
+    }
 }
 
 #[cfg(test)]
@@ -258,6 +281,18 @@ mod tests {
         let s = Style::new().bold().fg(Color::GREEN).paint("héllo");
         assert_eq!(width(&s), 5);
         assert_eq!(strip_ansi(&s), "héllo");
+    }
+
+    #[test]
+    fn width_counts_wide_characters_twice() {
+        assert_eq!(width("字a"), 3);
+        assert_eq!(width("e\u{301}"), 1);
+        assert_eq!(
+            truncate("字字", 3),
+            "字\x1b[0m",
+            "a wide character is not split"
+        );
+        assert_eq!(width_method(), WidthMethod::WcWidth);
     }
 
     #[test]

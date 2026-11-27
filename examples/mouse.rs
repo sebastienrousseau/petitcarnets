@@ -47,6 +47,7 @@ impl tea::Model for Mice {
             self.events.join("\n  ")
         );
         tea::View::new(content)
+            .with_alt_screen(true)
             .with_mouse_mode(MouseMode::AllMotion)
             .with_report_focus(true)
     }

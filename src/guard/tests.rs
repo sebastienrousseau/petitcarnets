@@ -18,7 +18,7 @@ fn modes_turn_off_newest_first_and_toggled_ones_drop_out() {
     let mouse = ModeKey::Mode(TerminalMode::MouseCellMotion);
     let focus = ModeKey::Mode(TerminalMode::ReportFocus);
     let mut active = Active::default();
-    active.on(ModeKey::AltScreen, b"<alt>");
+    active.on(ModeKey::Mode(TerminalMode::AltScreen), b"<alt>");
     active.on(ModeKey::HiddenCursor, b"<cursor>");
     active.on(paste, b"<paste>");
     active.on(mouse, b"<mouse>");

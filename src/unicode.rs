@@ -3,8 +3,11 @@
 //! Bubble Tea's do.
 
 mod grapheme;
+mod width;
 
 pub(crate) use grapheme::first_cluster;
+pub use width::WidthMethod;
+pub(crate) use width::first_cluster as first_width_cluster;
 
 /// The replacement character, Go's `utf8.RuneError`.
 pub(crate) const REPLACEMENT: char = '\u{FFFD}';
