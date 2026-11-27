@@ -25,7 +25,9 @@ lifecycle: run an editor or a shell in the terminal (`exec`), suspend
 with Ctrl-Z, release and restore the terminal, repaint after something
 else wrote over it, a colour profile detected from the environment that
 every colour written comes down to, and the terminal queries (colours,
-cursor, version, capabilities, clipboard). Expect the API to grow.
+cursor, version, capabilities, clipboard). From v0.0.5 it has a public
+test harness, `TestProgram`: Bubble Tea's teatest, on a virtual clock.
+Expect the API to grow.
 
 ## Why
 
@@ -41,8 +43,10 @@ cursor, version, capabilities, clipboard). Expect the API to grow.
   on quit, on panic (in `update` or in a task), on `SIGINT` and
   `SIGTERM`, and around an `exec` or a suspend, with no key lost or read
   twice; a real-terminal test checks each one in CI.
-- **Testable.** A headless backend runs a model with scripted keys and
-  captures the screen, with no pseudo-terminal.
+- **Testable.** `TestProgram` runs a model in the real runtime on a
+  virtual clock and an emulated terminal: no sleeps, no pseudo-terminal,
+  the same result every run, with golden files for screens. See
+  [Testing](#testing).
 - **Small, prompt frames.** Frames are diffed cell by cell; an unchanged
   frame writes nothing, and the frame after a key is drawn at once
   rather than on the next tick. See [docs/benchmarks.md](docs/benchmarks.md).
@@ -127,6 +131,52 @@ a program that wants nothing left behind returns an empty view last.
 | `tea.Batch(a, b)`, `tea.Sequence(a, b)` | `tea::batch([a, b])`, `tea::sequence([a, b])` |
 | `tea.Tick(d, fn)`, `tea.Every(d, fn)` | `tea::tick(d, f)`, `tea::every(d, f)` |
 | `p.Send(msg)` | `program.sender().send(msg)` |
+
+## Testing
+
+`petitcarnets::testing::TestProgram` is Bubble Tea's teatest: it runs a
+model in the same loop, renderer and terminal modes as a real program,
+in an emulated terminal, on a virtual clock. Timers, the frame rate and
+the escape timeout move only when the test moves time, so a test that
+waits ten seconds of program time takes microseconds, and gives the same
+result every run. Tasks still run on their own threads; the harness waits
+for each, and delivers their messages in the order they started.
+
+```rust
+use petitcarnets as tea;
+use std::time::Duration;
+use tea::testing::{TestProgram, assert_golden};
+
+// `Counter` as in the example above.
+
+#[test]
+fn counts_up() {
+    let mut test = TestProgram::new(Counter(0), 40, 10);
+    test.press(tea::Key::new(tea::KeyCode::Up));
+    assert!(test.screen().text().starts_with("Count: 1"));
+    // tests/golden/counter.golden: the screen, the cursor and the modes.
+    assert_golden("counter", &test.screen().snapshot());
+    test.type_text("q");
+    assert!(test.wait_finished(Duration::from_secs(1)));
+    assert_eq!(test.final_model().0, 1);
+}
+```
+
+| teatest (Go) | petitcarnets |
+| --- | --- |
+| `teatest.NewTestModel(t, m, teatest.WithInitialTermSize(w, h))` | `TestProgram::new(m, w, h)` |
+| `teatest.WithProgramOptions(...)` | `TestProgram::with_terminal(program, TestTerminal::new(w, h))` |
+| `tm.Send(msg)`, `tm.Type(s)` | `test.send(msg)`, `test.type_text(s)`, `test.press(key)`, `test.bytes(b)` |
+| `teatest.WaitFor(t, tm.Output(), cond)` | `test.wait_for(within, \|t\| cond)`, `test.advance(d)` |
+| `tm.Quit()`, `tm.WaitFinished(t)` | `test.quit()`, `test.wait_finished(within)` |
+| `tm.FinalModel(t)`, `tm.FinalOutput(t)` | `test.final_model()`, `test.final_output()`, `test.final_screen()` |
+| `teatest.RequireEqualOutput(t, out)` | `assert_golden(name, &escape(test.final_output()))` |
+
+Set `PETITCARNETS_UPDATE_GOLDEN=1` to write golden files instead of
+comparing with them. `TestTerminal` sets the terminal up: its size,
+whether it acts as a real terminal, and replies to the queries a program
+writes. `test.screen()` is a small terminal emulator (`Vt`) with the
+text of each row, each cell's style and link, the cursor, and the modes.
 
 ## Platforms
 

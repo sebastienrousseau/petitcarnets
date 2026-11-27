@@ -56,7 +56,11 @@ showed exactly that frame's text, for all 50 runs. Styles are not checked.
 
 ### Results: inline
 
-Mean bytes per frame, first frame bytes in brackets.
+Mean bytes per frame, first frame bytes in brackets. Measured again for
+v0.0.5, after v0.0.4 brought every colour down to the colour profile in
+the renderer's writer: every number is the same as for v0.0.3, for
+petitcarnets and for the others (the bench's backend is not a terminal,
+so the profile is 24-bit colour and nothing is converted).
 
 | scenario | petitcarnets | Bubble Tea v2 (tty) | Bubble Tea v2 (no input) | charmed-bubbletea | bubbletea-rs |
 |---|---:|---:|---:|---:|---:|
@@ -137,8 +141,8 @@ Mean bytes per frame, first frame bytes in brackets.
 ### Environment
 
 - 2026-11-27, Linux 7.3.5-2-cachyos, AMD Ryzen AI 9 HX 370 w/ Radeon 890M
-- rustc 1.100.0 (0ef1bc386 2026-11-09), petitcarnets 0.0.3 (working tree
-  of `feat/v0.0.3`), charmed-bubbletea 0.3.0, bubbletea-rs 0.0.9
+- rustc 1.100.0 (0ef1bc386 2026-11-09), petitcarnets 0.0.5 (working tree
+  of `feat/v0.0.5`), charmed-bubbletea 0.3.0, bubbletea-rs 0.0.9
 - go1.27.4 linux/amd64, Bubble Tea v2.2.0 (`charm.land/bubbletea/v2`,
   tag `v2.2.0`, commit f510168f)
 
@@ -193,6 +197,24 @@ cargo run --release -- --dump /tmp/frames
 (cd go && go run . -dump /tmp/frames)
 python3 verify.py /tmp/frames
 ```
+
+### Checked in CI
+
+The "Bytes per frame" job runs petitcarnets alone (no other port, no
+Go, nothing to download beyond the bench's own lockfile) and fails if any
+scenario writes a different number of bytes than
+`scripts/bench/expected.tsv` records: the first frame, and the 100
+frames after it together.
+
+```sh
+cd scripts/bench
+cargo run --release --no-default-features -- --check expected.tsv
+cargo run --release --no-default-features -- --bless expected.tsv  # after a change meant to alter them
+```
+
+A renderer change that writes more (or fewer) bytes fails the job until
+`expected.tsv` and the tables above are updated with it. The comparison
+with Bubble Tea and the other ports stays a manual run, as above.
 
 ## Keystroke latency
 
