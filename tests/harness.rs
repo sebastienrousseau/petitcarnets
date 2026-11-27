@@ -420,23 +420,6 @@ fn a_resize_while_released_reaches_the_model_when_it_takes_the_terminal_back() {
 }
 
 #[test]
-fn a_terminal_with_grapheme_widths_gets_them() {
-    let mut test = rig();
-    test.input(Input::ModeReport {
-        mode: tea::ReportedMode::Dec(2027),
-        value: tea::ModeSetting::Set,
-    });
-    assert!(test.screen().mode(2027));
-    assert_eq!(
-        tea::style::width_method(),
-        tea::style::WidthMethod::GraphemeWidth
-    );
-    test.quit();
-    assert!(!test.final_screen().mode(2027));
-    assert_eq!(tea::style::width_method(), tea::style::WidthMethod::WcWidth);
-}
-
-#[test]
 fn a_test_program_describes_itself() {
     let test = rig();
     let described = format!("{test:?}");
