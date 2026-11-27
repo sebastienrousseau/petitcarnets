@@ -26,17 +26,17 @@ const PACKAGES: [&str; 12] = [
 
 const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-enum Event {
+pub(crate) enum Event {
     Installed,
     Spin,
 }
 
-struct Installer {
-    index: usize,
-    frame: usize,
-    width: usize,
-    delay: Duration,
-    done: bool,
+pub(crate) struct Installer {
+    pub(crate) index: usize,
+    pub(crate) frame: usize,
+    pub(crate) width: usize,
+    pub(crate) delay: Duration,
+    pub(crate) done: bool,
 }
 
 impl Installer {
@@ -114,7 +114,8 @@ impl tea::Model for Installer {
     }
 }
 
-fn main() -> Result<(), tea::Error> {
+// `pub(crate)`: `tests/golden.rs` includes this file for its model.
+pub(crate) fn main() -> Result<(), tea::Error> {
     let delay = std::env::var("PACKAGE_DELAY_MS")
         .ok()
         .and_then(|v| v.parse().ok())

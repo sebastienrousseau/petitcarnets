@@ -374,3 +374,6 @@ impl Backend for TestBackend {
         self.terminal
     }
 }
+
+#[cfg(test)]
+mod tests;

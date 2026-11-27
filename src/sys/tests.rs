@@ -3,6 +3,7 @@
 use super::*;
 
 #[test]
+#[cfg_attr(miri, ignore)] // calls libc through src/sys.rs
 fn a_bad_descriptor_is_not_a_terminal() {
     assert!(!is_tty(-1));
     assert!(get_mode(-1).is_err());
@@ -10,12 +11,14 @@ fn a_bad_descriptor_is_not_a_terminal() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)] // calls libc through src/sys.rs
 fn the_opaque_buffer_holds_any_termios() {
     assert!(size_of::<Termios>() >= 72);
     assert_eq!(align_of::<Termios>(), 8);
 }
 
 #[test]
+#[cfg_attr(miri, ignore)] // calls libc through src/sys.rs
 fn a_pipe_carries_bytes_and_wakes_a_wait() {
     let pipe = Pipe::new().unwrap();
     write_all_fd(pipe.write, b"hi").unwrap();
@@ -26,6 +29,7 @@ fn a_pipe_carries_bytes_and_wakes_a_wait() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)] // calls libc through src/sys.rs
 fn a_wait_ends_at_its_timeout() {
     let pipe = Pipe::new().unwrap();
     let start = Instant::now();
@@ -35,6 +39,7 @@ fn a_wait_ends_at_its_timeout() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)] // calls libc through src/sys.rs
 fn the_write_end_never_blocks() {
     let pipe = Pipe::new().unwrap();
     let chunk = [0u8; 4096];

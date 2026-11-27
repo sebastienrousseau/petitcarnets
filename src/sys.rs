@@ -124,6 +124,13 @@ impl std::fmt::Debug for Termios {
     }
 }
 
+#[cfg(test)]
+impl PartialEq for Termios {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
 /// `struct winsize`: the same four `unsigned short`s everywhere.
 #[repr(C)]
 #[derive(Default)]
@@ -444,6 +451,37 @@ pub(crate) fn stop_process_group() -> io::Result<()> {
         std::thread::sleep(Duration::from_millis(2));
     }
     Ok(())
+}
+
+/// A new pseudo-terminal, for tests: its master end, and its slave end,
+/// which a program sees as its terminal. Linux only.
+#[cfg(all(test, target_os = "linux"))]
+pub(crate) fn open_pty() -> io::Result<(std::fs::File, std::fs::File)> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::OpenOptionsExt;
+    /// `O_NOCTTY`: do not become the process's controlling terminal.
+    const O_NOCTTY: c_int = 0o400;
+    /// `TIOCSPTLCK`: lock or unlock the slave end.
+    const TIOCSPTLCK: c_ulong = 0x4004_5431;
+    /// `TIOCGPTN`: the slave end's number.
+    const TIOCGPTN: c_ulong = 0x8004_5430;
+    let open = |path: &str| {
+        std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(O_NOCTTY)
+            .open(path)
+    };
+    let master = open("/dev/ptmx")?;
+    let mut unlock: c_int = 0;
+    let mut number: std::ffi::c_uint = 0;
+    // SAFETY: both requests take a pointer to one `int`-sized value,
+    // which here is a live local; the descriptor is open.
+    let _ = check(unsafe { ioctl(master.as_raw_fd(), TIOCSPTLCK, &raw mut unlock) })?;
+    // SAFETY: as above.
+    let _ = check(unsafe { ioctl(master.as_raw_fd(), TIOCGPTN, &raw mut number) })?;
+    let slave = open(&format!("/dev/pts/{number}"))?;
+    Ok((master, slave))
 }
 
 #[cfg(test)]

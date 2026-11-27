@@ -1,0 +1,24 @@
+# cargo-mutants: the core modules, as the weekly `mutants.yml` workflow
+# runs them (`cargo mutants`). Unit test files are not mutated.
+examine_globs = [
+  "src/exec.rs",
+  "src/input.rs",
+  "src/input/**/*.rs",
+  "src/renderer.rs",
+  "src/renderer/**/*.rs",
+  "src/program.rs",
+  "src/program/**/*.rs",
+  "src/mode.rs",
+  "src/mode/**/*.rs",
+  "src/guard.rs",
+  "src/color.rs",
+  "src/color/**/*.rs",
+  "src/unicode.rs",
+  "src/unicode/**/*.rs",
+  "src/cmd.rs",
+  "src/cmd/**/*.rs",
+]
+exclude_globs = ["**/tests.rs"]
+# The whole suite runs in seconds; a mutant that hangs the loop is a
+# timeout, not a pass.
+timeout_multiplier = 3.0

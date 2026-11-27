@@ -5,10 +5,10 @@
 use petitcarnets as tea;
 use tea::style::{Color, Style};
 
-struct Picker {
-    items: Vec<&'static str>,
-    cursor: usize,
-    chosen: Option<usize>,
+pub(crate) struct Picker {
+    pub(crate) items: Vec<&'static str>,
+    pub(crate) cursor: usize,
+    pub(crate) chosen: Option<usize>,
 }
 
 impl tea::Model for Picker {
@@ -57,7 +57,8 @@ impl tea::Model for Picker {
     }
 }
 
-fn main() -> Result<(), tea::Error> {
+// `pub(crate)`: `tests/golden.rs` includes this file for its model.
+pub(crate) fn main() -> Result<(), tea::Error> {
     let items = vec![
         "equal-weight",
         "min-variance",

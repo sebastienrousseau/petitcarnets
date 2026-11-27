@@ -1,0 +1,9 @@
+size 40x6, alternate screen
+cursor 37,3 hidden, style 0
+modes 1049 2004
+keyboard flags 1, modifyOtherKeys 2
+----------------------------------------
+
+  Count: 0
+
+  up/down or +/- to change, q to quit

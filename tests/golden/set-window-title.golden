@@ -1,0 +1,9 @@
+size 80x4, main screen
+cursor 22,2 hidden, style 0
+modes 2004
+keyboard flags 1, modifyOtherKeys 2
+title "Hello, petitcarnets"
+--------------------------------------------------------------------------------
+The window title has been set to 'Hello, petitcarnets'. It will be put back on e
+
+Press any key to quit.

@@ -9,20 +9,22 @@
 //! result, timer or held back frame, with no periodic wakeups.
 
 mod run;
+mod session;
 
 use crate::Model;
 use crate::backend::Backend;
+use crate::clock::{Clock, RealClock};
 use crate::color::ColorProfile;
 use crate::environ::Environment;
 use crate::exec::{Event, Executor, Item};
-use crate::mode::Modes;
 use crate::msg::{Error, Msg};
 use crate::renderer::Renderer;
 use crate::style::{WidthMethod, set_width_method};
 use run::{Loop, Settings};
+pub(crate) use session::Session;
 use std::fmt;
 use std::sync::mpsc::{self, Receiver};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// Frames a second unless [`Program::with_fps`] says otherwise, as in
 /// Bubble Tea.
@@ -109,7 +111,8 @@ impl<M> Sender<M> {
 }
 
 /// How the loop ended.
-enum End {
+#[derive(Debug)]
+pub(crate) enum End {
     Quit,
     Interrupt,
     Kill,
@@ -227,18 +230,29 @@ impl<M: Model> Program<M> {
     pub fn run_with(self, mut backend: impl Backend) -> Result<M, Error> {
         backend.enter()?;
         set_width_method(WidthMethod::WcWidth);
-        let mut terminal_modes = Modes::default();
-        let result = self.event_loop(&mut backend, &mut terminal_modes);
-        let cleared = terminal_modes.clear(&mut backend);
+        let result = match self.start(&mut backend, RealClock) {
+            Ok(mut session) => {
+                let end = session.run(&mut backend);
+                let (model, ended) = session.close(end, &mut backend);
+                ended.map(|()| model)
+            }
+            Err(err) => Err(err),
+        };
         set_width_method(WidthMethod::WcWidth);
         let left = backend.leave();
         let model = result?;
-        cleared?;
         left?;
         Ok(model)
     }
 
-    fn event_loop(self, backend: &mut impl Backend, modes: &mut Modes) -> Result<M, Error> {
+    /// Starts the loop on `backend`, already entered, with `clock`: input
+    /// started, the start queries written and the first messages queued.
+    /// Nothing is drawn yet.
+    pub(crate) fn start<C: Clock>(
+        self,
+        backend: &mut impl Backend,
+        clock: C,
+    ) -> Result<Session<M, C>, Error> {
         let Self {
             mut model,
             events,
@@ -263,18 +277,13 @@ impl<M: Model> Program<M> {
             terminal,
         };
         let colors = settings.profile;
-        let mut state = Loop::new(Executor::new(events), Renderer::new(size), modes, settings);
+        let mut state = Loop::new(Executor::new(events), Renderer::new(size), settings, clock);
         state.query(backend, should_query(&environment))?;
         state.exec.push(Item::Msg(Msg::ColorProfile(colors)));
         state.exec.push(Item::Msg(Msg::WindowSize(size)));
-        state.exec.run(model.init(), Instant::now());
-        let end = state.run(&mut model, &inbox, backend)?;
-        match end {
-            End::Quit => Ok(model),
-            End::Interrupt => Err(Error::Interrupted),
-            End::Kill => Err(Error::Killed),
-            End::Panic(message) => Err(Error::Panic(message)),
-        }
+        let now = state.now();
+        state.exec.run(model.init(), now);
+        Ok(Session::new(model, inbox, state))
     }
 }
 

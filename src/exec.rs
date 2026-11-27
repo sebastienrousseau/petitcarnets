@@ -7,6 +7,7 @@
 //! is done, and a sequence starts its next command only then.
 
 use crate::backend::Input;
+use crate::clock::Now;
 use crate::cmd::{Cmd, Fire, Handover, Inner, Output};
 use crate::msg::Msg;
 use std::cmp::{Ordering, Reverse};
@@ -20,9 +21,9 @@ pub(crate) enum Event<M> {
     /// From the terminal.
     Input(Input),
     /// A task finished with this message.
-    Done(Parent, M),
-    /// A task panicked with this message.
-    Panic(String),
+    Done(Task, M),
+    /// A task, by id, panicked with this message.
+    Panic(u64, String),
     /// From a [`Sender`](crate::Sender).
     Send(M),
     /// From [`Sender::quit`](crate::Sender::quit).
@@ -48,6 +49,27 @@ pub(crate) enum Item<M> {
     Output(Output),
     /// Hand the terminal over or take it back.
     Handover(Handover<M>),
+}
+
+impl<M> Event<M> {
+    /// The id of the task this event comes from, if it comes from one.
+    pub(crate) const fn task(&self) -> Option<u64> {
+        match self {
+            Self::Done(task, _) => Some(task.id),
+            Self::Panic(id, _) => Some(*id),
+            _ => None,
+        }
+    }
+}
+
+/// A task on its thread: its id, in the order tasks start, and who to
+/// tell when it is done.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Task {
+    /// Its id.
+    pub(crate) id: u64,
+    /// Who to tell.
+    pub(crate) parent: Parent,
 }
 
 /// Who to tell when a command is done.
@@ -94,6 +116,8 @@ pub(crate) struct Executor<M> {
     sequences: HashMap<u64, (VecDeque<Cmd<M>>, Parent)>,
     timers: BinaryHeap<Reverse<Timer<M>>>,
     next_id: u64,
+    /// Tasks running on their threads.
+    tasks: usize,
     events: Sender<Event<M>>,
 }
 
@@ -107,6 +131,7 @@ impl<M: Send + 'static> Executor<M> {
             sequences: HashMap::new(),
             timers: BinaryHeap::new(),
             next_id: 0,
+            tasks: 0,
             events,
         }
     }
@@ -114,6 +139,16 @@ impl<M: Send + 'static> Executor<M> {
     /// The next thing for the loop to do, in order.
     pub(crate) fn pop(&mut self) -> Option<Item<M>> {
         self.ready.pop_front()
+    }
+
+    /// Whether anything is waiting for the loop.
+    pub(crate) fn has_ready(&self) -> bool {
+        !self.ready.is_empty()
+    }
+
+    /// How many tasks are running on their threads.
+    pub(crate) const fn tasks(&self) -> usize {
+        self.tasks
     }
 
     /// Queues an item behind those already waiting.
@@ -127,15 +162,21 @@ impl<M: Send + 'static> Executor<M> {
     }
 
     /// Starts `cmd` from `init` or `update`.
-    pub(crate) fn run(&mut self, cmd: Cmd<M>, now: Instant) {
+    pub(crate) fn run(&mut self, cmd: Cmd<M>, now: Now) {
         self.start(cmd, Parent::Root, now);
         self.settle(now);
     }
 
-    /// A task under `parent` finished with `msg`.
-    pub(crate) fn task_done(&mut self, parent: Parent, msg: M, now: Instant) {
-        self.finish(parent, Item::Msg(Msg::App(msg)));
+    /// `task` finished with `msg`.
+    pub(crate) fn task_done(&mut self, task: Task, msg: M, now: Now) {
+        self.tasks = self.tasks.saturating_sub(1);
+        self.finish(task.parent, Item::Msg(Msg::App(msg)));
         self.settle(now);
+    }
+
+    /// A task panicked: it is no longer running.
+    pub(crate) fn task_panicked(&mut self) {
+        self.tasks = self.tasks.saturating_sub(1);
     }
 
     /// When the earliest timer is due, if there is one.
@@ -150,10 +191,10 @@ impl<M: Send + 'static> Executor<M> {
     }
 
     /// Fires every timer due by `now`, earliest first.
-    pub(crate) fn fire_due(&mut self, now: Instant) {
-        while self.next_deadline().is_some_and(|at| at <= now) {
+    pub(crate) fn fire_due(&mut self, now: Now) {
+        while self.next_deadline().is_some_and(|at| at <= now.at) {
             if let Some(Reverse(timer)) = self.timers.pop() {
-                let msg = (timer.fire)(SystemTime::now());
+                let msg = (timer.fire)(now.wall);
                 self.finish(timer.parent, Item::Msg(Msg::App(msg)));
             }
         }
@@ -161,14 +202,14 @@ impl<M: Send + 'static> Executor<M> {
     }
 
     /// Starts one command under `parent`.
-    fn start(&mut self, cmd: Cmd<M>, parent: Parent, now: Instant) {
+    fn start(&mut self, cmd: Cmd<M>, parent: Parent, now: Now) {
         match cmd.0 {
             Inner::Batch(cmds) => self.start_batch(cmds, parent, now),
             Inner::Sequence(cmds) => self.start_sequence(cmds, parent),
             Inner::Task(work) => self.spawn(work, parent),
-            Inner::Tick(delay, fire) => self.add_timer(now + delay, fire, parent),
+            Inner::Tick(delay, fire) => self.add_timer(now.at + delay, fire, parent),
             Inner::Every(period, fire) => {
-                self.add_timer(now + until_next(period, SystemTime::now()), fire, parent);
+                self.add_timer(now.at + until_next(period, now.wall), fire, parent);
             }
             other => match queued(other) {
                 Some(item) => self.finish(parent, item),
@@ -183,7 +224,7 @@ impl<M: Send + 'static> Executor<M> {
         self.done.push_back(parent);
     }
 
-    fn start_batch(&mut self, cmds: Vec<Cmd<M>>, parent: Parent, now: Instant) {
+    fn start_batch(&mut self, cmds: Vec<Cmd<M>>, parent: Parent, now: Now) {
         if cmds.is_empty() {
             self.done.push_back(parent);
             return;
@@ -203,12 +244,17 @@ impl<M: Send + 'static> Executor<M> {
         self.done.push_back(Parent::Sequence(id));
     }
 
-    fn spawn(&self, work: Box<dyn FnOnce() -> M + Send>, parent: Parent) {
+    fn spawn(&mut self, work: Box<dyn FnOnce() -> M + Send>, parent: Parent) {
+        let task = Task {
+            id: self.id(),
+            parent,
+        };
+        self.tasks += 1;
         let events = self.events.clone();
         drop(std::thread::spawn(move || {
             let event = match catch_unwind(AssertUnwindSafe(work)) {
-                Ok(msg) => Event::Done(parent, msg),
-                Err(panic) => Event::Panic(panic_message(panic.as_ref())),
+                Ok(msg) => Event::Done(task, msg),
+                Err(panic) => Event::Panic(task.id, panic_message(panic.as_ref())),
             };
             let _ = events.send(event);
         }));
@@ -225,7 +271,7 @@ impl<M: Send + 'static> Executor<M> {
     }
 
     /// Moves batches and sequences on until nothing more finishes now.
-    fn settle(&mut self, now: Instant) {
+    fn settle(&mut self, now: Now) {
         while let Some(parent) = self.done.pop_front() {
             match parent {
                 Parent::Root => {}
@@ -248,7 +294,7 @@ impl<M: Send + 'static> Executor<M> {
     }
 
     /// Starts the sequence's next command, or reports it done.
-    fn sequence_step(&mut self, id: u64, now: Instant) {
+    fn sequence_step(&mut self, id: u64, now: Now) {
         let Some((cmds, parent)) = self.sequences.get_mut(&id) else {
             return;
         };

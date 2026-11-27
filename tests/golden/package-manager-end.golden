@@ -1,0 +1,18 @@
+size 70x16, main screen
+cursor 0,14 shown, style 0
+modes 7 25
+keyboard flags 0, modifyOtherKeys 0
+----------------------------------------------------------------------
+✓ vegeutils
+✓ libgardening
+✓ currykit
+✓ spicerack
+✓ fullenglish
+✓ eggy
+✓ bad-kitty
+✓ chai
+✓ hojicha
+✓ libtacos
+✓ babys-monads
+✓ libpurring
+Done! Installed 12 packages.

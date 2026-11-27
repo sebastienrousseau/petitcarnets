@@ -1,0 +1,9 @@
+size 40x6, main screen
+cursor 11,3 hidden, style 0
+modes 2004
+keyboard flags 1, modifyOtherKeys 2
+----------------------------------------
+
+  Done: 20! = 2432902008176640000
+
+  q to quit

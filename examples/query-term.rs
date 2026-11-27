@@ -13,7 +13,7 @@
 
 use petitcarnets as tea;
 
-struct Query;
+pub(crate) struct Query;
 
 /// Every question at once.
 fn everything() -> Vec<tea::Cmd<()>> {
@@ -70,7 +70,8 @@ impl tea::Model for Query {
     }
 }
 
-fn main() -> Result<(), tea::Error> {
+// `pub(crate)`: `tests/golden.rs` includes this file for its model.
+pub(crate) fn main() -> Result<(), tea::Error> {
     let _ = tea::Program::new(Query).run()?;
     Ok(())
 }

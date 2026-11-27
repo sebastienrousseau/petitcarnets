@@ -3,6 +3,91 @@
 All notable changes to this project are documented here. Every release is
 exactly 0.0.1 above the previous one.
 
+## [0.0.5] - 2026-11-27
+
+Testing and speed: a public, deterministic test harness (Bubble Tea's
+teatest, which its issue #1654 asks for), golden tests for the examples,
+and quality gates for coverage, Miri, ThreadSanitizer, mutation testing
+and the bytes the renderer writes.
+
+### Added
+
+- `testing::TestProgram`, Bubble Tea's teatest: runs a model in the real
+  runtime (the loop, executor, renderer, terminal modes and output queue
+  of `Program::run_with`) on a virtual clock, in an emulated terminal.
+  `tick`, `every`, the frame rate, the escape timeout and the wait for
+  query replies follow the virtual clock, which moves only with
+  `advance`, `wait_for` or `wait_finished`; nothing sleeps. Input goes in
+  with `send`, `press`, `type_text`, `bytes` (through the real decoder),
+  `input`, `resize`, `interrupt`, `terminate`, `suspend`, `resume`,
+  `quit` and `kill`; `screen`, `output`, `model`, `final_screen`,
+  `final_output`, `final_model` and `into_result` read the result. Each
+  call returns once the program is idle: tasks still run on their own
+  threads, and the harness waits for each and delivers their messages in
+  the order the tasks started. `exec` runs its command for real;
+  `suspend` hands the terminal over and continues at once, counted by
+  `suspensions`. A program that never goes idle (a zero `tick` that
+  starts itself) is reported with a panic instead of hanging the test.
+- `testing::TestTerminal`: the harness's terminal: its size, whether it
+  acts as a real terminal, and scripted replies to queries
+  (`reply(query, answer)`).
+- `testing::Vt`, the terminal emulator the crate's own tests used, now
+  public: `feed`, `text`, `row_text`, `cell` (`ScreenCell`: text, width,
+  style as SGR, hyperlink), `cursor`, `cursor_visible`, `cursor_style`,
+  `alt_screen`, `mode`, `modes`, `title`, `scrollback`, the kitty
+  keyboard flags (`keyboard_flags`, now tracked: push, pop and set) and
+  the modifyOtherKeys level, and `snapshot`, all of it as stable text for
+  golden files.
+- `testing::assert_golden(name, actual)` against
+  `tests/golden/<name>.golden`, rewritten with
+  `PETITCARNETS_UPDATE_GOLDEN=1` (Go's `golden.RequireEqual`), with
+  `golden_path` and `escape` (raw output as readable text).
+- 15 golden tests (`tests/golden.rs`, 26 golden files) run the examples'
+  own models (counter, picker, spinner on virtual ticks, package-manager
+  printing above its line, altscreen-toggle, mouse,
+  keyboard-enhancements, query-term with scripted replies, cursor-style,
+  set-window-title, lifecycle with its process id left out) and check
+  screens, cursor, modes and keyboard flags, and the exact bytes for
+  three of them. The examples' models are `pub(crate)` so the tests can
+  include them.
+- CI jobs "Coverage" (cargo-llvm-cov over the unit and integration tests
+  and the real-terminal smoke test, failing under 90% of the library's
+  lines), "Miri" (every test that makes no FFI call), "ThreadSanitizer"
+  (the test suite with `-Zsanitizer=thread` and the standard library
+  rebuilt) and "Bytes per frame" (the renderer's bytes for each
+  benchmark scenario, against `scripts/bench/expected.tsv`).
+- A weekly and on-demand workflow, `mutants.yml`, runs cargo-mutants on
+  the core modules (listed in `.cargo/mutants.toml`) and uploads the
+  report. It is not a required check.
+- `scripts/bench` `--check FILE` and `--bless FILE`, for the CI job.
+
+### Changed
+
+- The runtime reads time from a clock it is given (the real one for
+  `Program::run_with`, a virtual one for `TestProgram`); an idle program
+  still never wakes.
+- Most tests in `tests/runtime.rs`, `tests/lifecycle.rs` and the
+  program's unit tests run on `TestProgram`, so they no longer sleep or
+  depend on timing; a few stay on `TestBackend` to cover it. The checks
+  on timing are now exact: 300 ticks 1 ms apart at 10 fps draw 3 frames
+  in 300 ms of virtual time, and an unanswered query delays the end by
+  500 ms exactly.
+- The `spinner` example waits two seconds with a `tick` before it
+  computes on another thread, instead of sleeping on that thread, so the
+  wait is the program's and can be tested.
+- `docs/benchmarks.md` measured again for v0.0.5: every number is
+  unchanged.
+
+### Fixed
+
+- A frame held back by the frame rate while the terminal was handed
+  over (`release_terminal`) woke the loop over and over until the
+  terminal was taken back: a busy wait. Such a frame is now dropped;
+  taking the terminal back draws one at once.
+- Quitting while the terminal was released dropped the output that was
+  waiting for it (`println`, `raw`); it is now written when the terminal
+  is taken back for the last frame. A kill still drops it.
+
 ## [0.0.4] - 2026-11-27
 
 Bubble Tea v2's lifecycle and terminal queries: running other programs

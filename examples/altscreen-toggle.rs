@@ -7,7 +7,7 @@ use petitcarnets as tea;
 use tea::style::{Color, Style};
 
 #[derive(Default)]
-struct Toggle {
+pub(crate) struct Toggle {
     alt_screen: bool,
     quitting: bool,
 }
@@ -50,7 +50,8 @@ impl tea::Model for Toggle {
     }
 }
 
-fn main() -> Result<(), tea::Error> {
+// `pub(crate)`: `tests/golden.rs` includes this file for its model.
+pub(crate) fn main() -> Result<(), tea::Error> {
     let _ = tea::Program::new(Toggle::default()).run()?;
     Ok(())
 }

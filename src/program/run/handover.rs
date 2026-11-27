@@ -7,12 +7,13 @@
 use super::Loop;
 use crate::Model;
 use crate::backend::{Backend, Input};
+use crate::clock::Clock;
 use crate::cmd::{Handoff, Handover};
 use crate::exec::{Event, Item};
 use crate::msg::{Error, Msg};
 use std::io;
 use std::sync::mpsc::Receiver;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// Asks for the primary device attributes: every terminal answers, and
 /// answers in order, so once this reply is in, every earlier one is.
@@ -26,7 +27,7 @@ const REPLY_WINDOW: Duration = Duration::from_secs(1);
 /// The longest wait for those replies; Bubble Tea's `queryDrainTimeout`.
 const DRAIN_TIMEOUT: Duration = Duration::from_millis(500);
 
-impl<A: Send + 'static> Loop<'_, A> {
+impl<A: Send + 'static, C: Clock> Loop<A, C> {
     /// Hands the terminal over or takes it back, as `handover` says.
     pub(super) fn lifecycle<M: Model<Msg = A>>(
         &mut self,
@@ -106,7 +107,7 @@ impl<A: Send + 'static> Loop<'_, A> {
 
     /// Takes the terminal back after a release, then writes the output
     /// that waited.
-    fn restore<M: Model<Msg = A>>(
+    pub(super) fn restore<M: Model<Msg = A>>(
         &mut self,
         model: &M,
         backend: &mut impl Backend,
@@ -161,19 +162,19 @@ impl<A: Send + 'static> Loop<'_, A> {
         let Some(asked) = self.queried.take() else {
             return Ok(());
         };
-        if !self.settings.terminal || asked.elapsed() > REPLY_WINDOW {
+        let now = self.clock.now().at;
+        if !self.settings.terminal || now.saturating_duration_since(asked) > REPLY_WINDOW {
             return Ok(());
         }
         let out = backend.output();
         out.write_all(SENTINEL)?;
         out.flush()?;
-        let until = Instant::now() + DRAIN_TIMEOUT;
+        let until = now + DRAIN_TIMEOUT;
         loop {
-            let left = until.saturating_duration_since(Instant::now());
-            match inbox.recv_timeout(left) {
-                Ok(Event::Input(Input::PrimaryDeviceAttributes(_))) | Err(_) => return Ok(()),
-                Ok(event) if keep => self.take(event),
-                Ok(_) => {}
+            match self.clock.wait_until(inbox, until) {
+                Some(Event::Input(Input::PrimaryDeviceAttributes(_))) | None => return Ok(()),
+                Some(event) if keep => self.take(event),
+                Some(_) => {}
             }
         }
     }

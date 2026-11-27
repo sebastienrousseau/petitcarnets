@@ -1,0 +1,9 @@
+\u{1b}[?7l\u{1b}[?2004h\u{1b}[>4;2m\u{1b}[>1u\u{1b}]9;4;1;75\u{7}\u{1b}[?25l\r\u{1b}[J\u{1b}[38;5;63m⠋\u{1b}[m Installing \u{1b}[38;5;211mlibtacos\u{1b}[13C\u{1b}[m██████████████████████░░░░░░░░  9/12\r\u{1b}[38;5;63m⠙\u{1b}[m\r\u{1b}[38;5;63m⠹\u{1b}[m\r\u{1b}[38;5;63m⠸\u{1b}[m\u{1b}]9;4;1;83\u{7}\u{1b}[12C\u{1b}[38;5;211mbabys-monads\u{1b}[31C\u{1b}[m███\u{1b}[6C10\r\n
+\u{1b}[1A\u{1b}[1L\u{1b}[?7h\u{1b}[K\u{1b}[32m✓\u{1b}[m libtacos\r\n
+\u{1b}[?7l\u{1b}[38;5;63m⠼\u{1b}[m\u{1b}]9;4;1;91\u{7}\u{1b}[12C\u{1b}[38;5;211mlibpurring\u{1b}[m  \u{1b}[34C██\u{1b}[5C1\r\n
+\u{1b}[1A\u{1b}[1L\u{1b}[?7h\u{1b}[K\u{1b}[32m✓\u{1b}[m babys-monads\r\n
+\u{1b}[?7l\u{1b}[38;5;63m⠴\u{1b}[m\r\u{1b}[38;5;63m⠦\u{1b}[m\u{1b}]9;4;0\u{7}\r\u{1b}[1mDone! Installed 12 packages.\u{1b}[m\u{1b}[K\r\n
+\r\n
+\u{1b}[2A\u{1b}[1L\u{1b}[?7h\u{1b}[K\u{1b}[32m✓\u{1b}[m libpurring\r\n
+\u{1b}[?7l\u{1b}[B\r\n
+\u{1b}[J\u{1b}[?25h\u{1b}[>4m\u{1b}[<u\u{1b}[?2004l\u{1b}[?7h

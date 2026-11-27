@@ -1,0 +1,14 @@
+size 70x12, main screen
+cursor 0,7 hidden, style 0
+modes 2004
+keyboard flags 1, modifyOtherKeys 2
+----------------------------------------------------------------------
+Received message: ColorProfile(TrueColor)
+Received message: WindowSize(Size { width: 70, height: 12 })
+Received message: BackgroundColor(Rgb { r: 17, g: 34, b: 51 })
+Received message: ForegroundColor(Rgb { r: 238, g: 238, b: 238 })
+Received message: CursorPosition { x: 6, y: 4 }
+Received message: Capability("RGB")
+Received message: PrimaryDeviceAttributes([62, 22])
+b f c: colours, p: cursor, v: version, r: RGB, w: size,
+k/y: read/set clipboard, d: device attributes, q: quit

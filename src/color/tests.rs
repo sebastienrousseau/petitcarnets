@@ -146,3 +146,12 @@ fn profiles_are_ordered_and_named_as_in_go() {
     assert!(ColorProfile::Ansi256 < ColorProfile::TrueColor);
     assert_eq!(ColorProfile::Ansi256.to_string(), "ANSI256");
 }
+
+#[test]
+fn a_channel_with_anything_but_hex_digits_is_zero() {
+    assert_eq!(channel(b""), 0);
+    assert_eq!(channel(b"g"), 0);
+    assert_eq!(channel(b"1g"), 0);
+    assert_eq!(channel(b"g1"), 0);
+    assert_ne!(channel(b"1f"), 0);
+}

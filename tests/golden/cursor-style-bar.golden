@@ -1,0 +1,8 @@
+size 70x4, main screen
+cursor 0,2 shown, style 1
+modes 25 2004
+keyboard flags 1, modifyOtherKeys 2
+----------------------------------------------------------------------
+Press left/right to change the cursor style, q or ctrl+c to quit.
+
+  <- This is the cursor (a blinking block)
