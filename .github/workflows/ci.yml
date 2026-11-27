@@ -1,10 +1,12 @@
 name: CI
 
+# Pull requests into main, and main itself; a push to a release branch
+# with an open pull request runs once, through the pull request.
 on:
   push:
-    branches: [main, "feat/**"]
+    branches: [main]
   pull_request:
-    branches: [main, "feat/**"]
+    branches: [main]
 
 permissions:
   contents: read
