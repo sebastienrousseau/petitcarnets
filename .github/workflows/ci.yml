@@ -1,0 +1,82 @@
+name: CI
+
+# Pull requests into main, and main itself; a push to a release branch
+# with an open pull request runs once, through the pull request.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }}, ${{ matrix.rust }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        rust: [stable, "1.85"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+          components: clippy, rustfmt
+      - name: Format
+        if: matrix.rust == 'stable'
+        run: cargo fmt --all -- --check
+      - name: Clippy (pedantic, warnings are errors)
+        if: matrix.rust == 'stable'
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --all-targets
+      - name: Doc tests
+        run: cargo test --doc
+      - name: Docs
+        if: matrix.rust == 'stable'
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --no-deps
+
+  musl:
+    name: Test (musl)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - run: cargo test --all-targets --target x86_64-unknown-linux-musl
+
+  pty:
+    name: Real terminal smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - run: scripts/pty-smoke.sh
+
+  complexity:
+    name: Complexity ceilings
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
+        with:
+          tool: rust-code-analysis-cli@0.0.25
+      - run: scripts/complexity-gate.py
+
+  no-dependencies:
+    name: No dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: The dependency tree is the crate alone
+        run: |
+          deps=$(cargo tree --edges normal --prefix none | sort -u | grep -cv '^petitcarnets ' || true)
+          if [ "$deps" != "0" ]; then cargo tree --edges normal; echo "petitcarnets must have no dependencies"; exit 1; fi
