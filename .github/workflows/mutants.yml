@@ -1,0 +1,42 @@
+name: Mutants
+
+# Mutation testing of the core modules listed in .cargo/mutants.toml:
+# weekly, or by hand. Not a required check; the report is uploaded.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  mutants:
+    name: Mutation testing
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-mutants@27.1.0
+      # cargo-mutants exits 2 when a mutant is missed and 3 on a timeout:
+      # both are findings for the report, not a broken run.
+      - name: Mutants in the core modules
+        run: |
+          set -euo pipefail
+          code=0
+          cargo mutants --no-shuffle -j 2 || code=$?
+          for kind in caught missed timeout unviable; do
+            echo "$kind: $(wc -l < "mutants.out/$kind.txt")" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+          case "$code" in
+            0 | 2 | 3) ;;
+            *) exit "$code" ;;
+          esac
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: mutants.out
+          path: mutants.out

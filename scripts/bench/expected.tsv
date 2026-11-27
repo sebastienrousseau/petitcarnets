@@ -1,0 +1,12 @@
+# Bytes petitcarnets writes, from `cargo run --release --no-default-features -- --bless expected.tsv`.
+# screen	scenario	first frame	the 100 frames after it
+inline	counter	81	425
+inline	list	301	3170
+inline	log	1281	65926
+inline	spinner	65	400
+inline	full	1978	194800
+alt	counter	92	423
+alt	list	312	3135
+alt	log	1292	5400
+alt	spinner	76	400
+alt	full	1988	194500

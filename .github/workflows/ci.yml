@@ -89,3 +89,79 @@ jobs:
         run: |
           deps=$(cargo tree --edges normal --prefix none | sort -u | grep -cv '^petitcarnets ' || true)
           if [ "$deps" != "0" ]; then cargo tree --edges normal; echo "petitcarnets must have no dependencies"; exit 1; fi
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-llvm-cov@0.9.1
+      # The unit and integration tests, and the real-terminal smoke test
+      # (the only one that reaches src/terminal.rs, src/guard.rs and most
+      # of src/sys.rs), all instrumented. The examples the smoke test runs
+      # are left out of the report: they are not the library.
+      - name: Line coverage of the library, at least 90%
+        run: |
+          set -euo pipefail
+          eval "$(cargo llvm-cov show-env --export-prefix)"
+          cargo llvm-cov clean --workspace
+          cargo test --lib --tests
+          scripts/pty-smoke.sh
+          cargo llvm-cov report --summary-only --ignore-filename-regex 'examples/' --fail-under-lines 90
+
+  miri:
+    name: Miri
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri, rust-src
+      # Every test that makes no FFI call: those that call libc through
+      # src/sys.rs are marked `#[cfg_attr(miri, ignore)]`, and
+      # tests/lifecycle.rs, which starts real processes, is not run. The
+      # skipped tests check thousands of fixture lines against Go (or a
+      # hundred thousand inputs, or wake a program a hundred thousand
+      # times) through code the other tests run too;
+      # under Miri they would take hours. Isolation is off for the golden
+      # files and the clock.
+      - name: Undefined behaviour checks
+        env:
+          MIRIFLAGS: -Zmiri-disable-isolation
+        run: >-
+          cargo miri test --lib --test harness --test golden --test runtime --
+          --skip every_fixture_line --skip widths_and_tokens_match_go
+          --skip fuzz_a_hundred_thousand_inputs
+          --skip a_long_sequence_of_instant_commands
+          --skip a_program_that_never_idles_is_reported
+
+  tsan:
+    name: ThreadSanitizer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+      - name: Data race checks, the standard library instrumented too
+        env:
+          RUSTFLAGS: -Zsanitizer=thread
+          TSAN_OPTIONS: halt_on_error=1
+        run: cargo test -Zbuild-std --target x86_64-unknown-linux-gnu --lib --tests
+
+  bytes-per-frame:
+    name: Bytes per frame
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      # petitcarnets alone (no other ports, no Go): the bytes it writes
+      # for each benchmark scenario must match scripts/bench/expected.tsv.
+      - name: The renderer writes the committed bytes per frame
+        working-directory: scripts/bench
+        run: cargo run --release --locked --no-default-features -- --check expected.tsv
