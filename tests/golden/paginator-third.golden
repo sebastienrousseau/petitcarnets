@@ -1,0 +1,31 @@
+size 30x30, main screen
+cursor 5,23 hidden, style 0
+modes 2004
+keyboard flags 1, modifyOtherKeys 2
+------------------------------
+
+  Paginator Example
+
+  • Item 21
+
+  • Item 22
+
+  • Item 23
+
+  • Item 24
+
+  • Item 25
+
+  • Item 26
+
+  • Item 27
+
+  • Item 28
+
+  • Item 29
+
+  • Item 30
+
+  ••••••••••
+
+  h/l ←/→ page • q: quit

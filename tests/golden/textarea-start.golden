@@ -1,0 +1,15 @@
+size 50x14, main screen
+cursor 6,2 shown, style 1
+modes 25 2004
+keyboard flags 1, modifyOtherKeys 2
+--------------------------------------------------
+Tell me a story.
+
+┃   1 Once upon a time...
+┃
+┃
+┃
+┃
+┃
+
+(ctrl+c to quit)

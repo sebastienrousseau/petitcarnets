@@ -1,0 +1,28 @@
+size 60x24, alternate screen
+cursor 20,22 hidden, style 0
+modes 1049 2004
+keyboard flags 1, modifyOtherKeys 2
+------------------------------------------------------------
+
+     My Fave Things
+
+    “tea” 4 items • 19 filtered
+
+    Plantasia, the album
+    My plants love it too
+
+  │ The vernal equinox
+  │ The autumnal equinox is pretty good too
+
+    Nutella
+    It's good on toast
+
+    Afternoon tea
+    Especially the tea sandwich part
+
+
+
+    ↑/k    up             /   filter          q quit
+    ↓/j    down           esc clear filter    ? close help
+    g/home go to start
+    G/end  go to end

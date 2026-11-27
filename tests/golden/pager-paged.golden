@@ -1,0 +1,19 @@
+size 60x14, alternate screen
+cursor 52,12 hidden, style 0
+modes 1002 1006 1049 2004
+keyboard flags 1, modifyOtherKeys 2
+------------------------------------------------------------
+╭───────────╮
+│ Mr. Pager ├───────────────────────────────────────────────
+╰───────────╯
+  10 │ opens at the page you last wrote on, and it forgets n
+  11 │ tear the page out.
+  12 │
+  13 │ ## Why a terminal
+  14 │
+  15 │ A terminal is the notebook of the machine. Programs w
+  16 │ line, and a good program leaves the page tidy: what i
+  17 │ it is done, and what it printed stays in the scrollba
+                                               ╭───────────╮
+───────────────────────────────────────────────┤  32%:  0% │
+                                               ╰───────────╯

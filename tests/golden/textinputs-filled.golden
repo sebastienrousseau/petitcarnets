@@ -1,0 +1,12 @@
+size 50x10, main screen
+cursor 9,2 hidden, style 0
+modes 2004
+keyboard flags 1, modifyOtherKeys 2
+--------------------------------------------------
+> seb
+> seb@example.com
+> ••••••
+
+[ Submit ]
+
+cursor mode is blink (ctrl+r to change style)

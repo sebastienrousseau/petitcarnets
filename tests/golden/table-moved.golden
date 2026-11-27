@@ -1,0 +1,16 @@
+size 50x14, main screen
+cursor 42,8 hidden, style 0
+modes 2004
+keyboard flags 1, modifyOtherKeys 2
+--------------------------------------------------
+┌──────────────────────────────────────────┐
+│ Rank  City        Country     Population │
+│──────────────────────────────────────────│
+│ 3     Shanghai    China       28,516,904 │
+│ 4     Dhaka       Bangladesh  22,478,116 │
+│ 5     São Paulo   Brazil      22,429,800 │
+│ 6     Mexico Ci…  Mexico      22,085,140 │
+│ 7     Cairo       Egypt       21,750,020 │
+│ 8     Beijing     China       21,333,332 │
+└──────────────────────────────────────────┘
+  ↑/k up • ↓/j down

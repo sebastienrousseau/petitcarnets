@@ -1,0 +1,14 @@
+size 20x10, main screen
+cursor 12,0 hidden, style 0
+modes 2004
+keyboard flags 1, modifyOtherKeys 2
+--------------------
+You chose: ←
+
+
+
+
+↑/k move up       ?
+↓/j move down     q
+←/h move left
+→/l move right

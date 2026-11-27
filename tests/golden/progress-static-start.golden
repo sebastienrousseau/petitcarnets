@@ -1,0 +1,9 @@
+size 60x5, main screen
+cursor 23,3 hidden, style 0
+modes 2004
+keyboard flags 1, modifyOtherKeys 2
+------------------------------------------------------------
+
+  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   0%
+
+  Press any key to quit

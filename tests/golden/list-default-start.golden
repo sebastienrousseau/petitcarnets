@@ -1,0 +1,28 @@
+size 60x24, alternate screen
+cursor 50,22 hidden, style 0
+modes 1049 2004
+keyboard flags 1, modifyOtherKeys 2
+------------------------------------------------------------
+
+     My Fave Things
+
+    23 items
+
+  │ Raspberry Pi’s
+  │ I have ’em all over my house
+
+    Nutella
+    It's good on toast
+
+    Bitter melon
+    It cools you down
+
+    Nice socks
+    And by that I mean socks without holes
+
+    Eight hours of sleep
+    I had this once
+
+    •••••
+
+    ↑/k up • ↓/j down • / filter • q quit • ? more

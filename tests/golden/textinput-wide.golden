@@ -1,0 +1,10 @@
+size 40x6, main screen
+cursor 8,2 shown, style 1
+modes 25 2004
+keyboard flags 1, modifyOtherKeys 2
+----------------------------------------
+What’s your favorite Pokémon?
+
+> 字字 é
+
+(esc to quit)

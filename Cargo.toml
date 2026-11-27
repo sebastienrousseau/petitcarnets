@@ -18,11 +18,82 @@ include = [
     "tests/fixtures/color.tsv",
     "tests/fixtures/input.tsv",
     "tests/fixtures/width.tsv",
+    "tests/fixtures/bubbles.tsv",
     "README.md",
     "CHANGELOG.md",
     "LICENSE-MIT",
     "LICENSE-APACHE",
 ]
+
+# The components (Bubbles), on by default; they add no dependencies.
+[features]
+default = ["bubbles"]
+bubbles = []
+
+# The examples of the components, and their tests, need them.
+[[example]]
+name = "textinput"
+required-features = ["bubbles"]
+
+[[example]]
+name = "textinputs"
+required-features = ["bubbles"]
+
+[[example]]
+name = "textarea"
+required-features = ["bubbles"]
+
+[[example]]
+name = "spinners"
+required-features = ["bubbles"]
+
+[[example]]
+name = "list-simple"
+required-features = ["bubbles"]
+
+[[example]]
+name = "list-default"
+required-features = ["bubbles"]
+
+[[example]]
+name = "pager"
+required-features = ["bubbles"]
+
+[[example]]
+name = "progress-static"
+required-features = ["bubbles"]
+
+[[example]]
+name = "progress-animated"
+required-features = ["bubbles"]
+
+[[example]]
+name = "table"
+required-features = ["bubbles"]
+
+[[example]]
+name = "help"
+required-features = ["bubbles"]
+
+[[example]]
+name = "timer"
+required-features = ["bubbles"]
+
+[[example]]
+name = "stopwatch"
+required-features = ["bubbles"]
+
+[[example]]
+name = "paginator"
+required-features = ["bubbles"]
+
+[[example]]
+name = "chat"
+required-features = ["bubbles"]
+
+[[test]]
+name = "bubbles"
+required-features = ["bubbles"]
 
 # No dependencies, by design: the terminal is driven through a few libc
 # functions declared in src/sys.rs.

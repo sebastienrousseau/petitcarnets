@@ -48,6 +48,8 @@
 mod ansi;
 mod backend;
 mod base64;
+#[cfg(feature = "bubbles")]
+pub mod bubbles;
 mod clock;
 mod cmd;
 mod color;

@@ -1,0 +1,19 @@
+size 60x14, alternate screen
+cursor 59,13 hidden, style 0
+modes 1002 1006 1049 2004
+keyboard flags 1, modifyOtherKeys 2
+------------------------------------------------------------
+╭───────────╮
+│ Mr. Pager ├───────────────────────────────────────────────
+╰───────────╯
+   1 │ # Little notebooks
+   2 │
+   3 │ A notebook is a small thing to carry and a large thin
+   4 │ the shopping list and the plan for the garden, the ad
+   5 │ and the first line of a poem.
+   6 │
+   7 │ ## Why paper
+   8 │
+                                               ╭───────────╮
+───────────────────────────────────────────────┤   0%:  0% │
+                                               ╰───────────╯

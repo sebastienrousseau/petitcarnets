@@ -1,0 +1,16 @@
+size 50x14, main screen
+cursor 42,8 hidden, style 0
+modes 2004
+keyboard flags 1, modifyOtherKeys 2
+--------------------------------------------------
+┌──────────────────────────────────────────┐
+│ Rank  City        Country     Population │
+│──────────────────────────────────────────│
+│ 95    Ningbo      China       4,405,292  │
+│ 96    Tel Aviv    Israel      4,343,584  │
+│ 97    Yaounde     Cameroon    4,336,670  │
+│ 98    Rome        Italy       4,297,877  │
+│ 99    Shijiazhu…  China       4,285,135  │
+│ 100   Montreal    Canada      4,276,526  │
+└──────────────────────────────────────────┘
+  ↑/k up • ↓/j down

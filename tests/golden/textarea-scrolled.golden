@@ -1,0 +1,15 @@
+size 50x14, main screen
+cursor 13,7 shown, style 1
+modes 25 2004
+keyboard flags 1, modifyOtherKeys 2
+--------------------------------------------------
+Tell me a story.
+
+┃   3
+┃   4
+┃   5
+┃   6
+┃   7
+┃   8 The end
+
+(ctrl+c to quit)
