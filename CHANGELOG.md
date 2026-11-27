@@ -3,7 +3,22 @@
 All notable changes to this project are documented here. Every release is
 exactly 0.0.1 above the previous one.
 
-## [0.0.2] - Unreleased
+## [0.0.3] - Unreleased
+
+### Added
+
+- Releases publish to crates.io from GitHub Actions through crates.io
+  trusted publishing, so no crates.io token is stored anywhere. Pushing
+  a version tag starts `.github/workflows/release.yml`, which waits for
+  the maintainer's approval in the `crates-io` environment and checks
+  that the tag names the crate's version, sits on `main` and carries a
+  signature GitHub has verified.
+
+### Fixed
+
+- The 0.0.2 changelog heading now carries its release date.
+
+## [0.0.2] - 2026-11-27
 
 Input, decoded as Bubble Tea v2 decodes it: a port of ultraviolet's
 input decoder (the Unix paths), checked line for line against Go on a
