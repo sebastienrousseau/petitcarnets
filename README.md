@@ -16,8 +16,11 @@ Early work, on [crates.io](https://crates.io/crates/petitcarnets) since
 v0.0.1. It has the runtime (Bubble Tea's names, commands, window size,
 signals, a terminal restored however the program ends) and, from v0.0.2,
 Bubble Tea's input: keys with modifiers and releases, mouse, paste,
-focus, and the terminal's replies. A cell renderer and inline mode come
-next; expect the API to grow.
+focus, and the terminal's replies. From v0.0.3 it has Bubble Tea v2's
+renderer: views draw inline by default (or on the alternate screen when
+they ask), on a cell buffer that writes only the cells that change, with
+wide characters, emoji and tabs measured as Go measures them; `println`
+prints above an inline frame. Expect the API to grow.
 
 ## Why
 
@@ -34,6 +37,9 @@ next; expect the API to grow.
   `SIGTERM`; a real-terminal test checks each one in CI.
 - **Testable.** A headless backend runs a model with scripted keys and
   captures the screen, with no pseudo-terminal.
+- **Small, prompt frames.** Frames are diffed cell by cell; an unchanged
+  frame writes nothing, and the frame after a key is drawn at once
+  rather than on the next tick. See [docs/benchmarks.md](docs/benchmarks.md).
 
 ## Example
 
@@ -67,7 +73,14 @@ fn main() -> Result<(), tea::Error> {
 ```
 
 Run the examples with `cargo run --example counter` (also `picker`,
-`spinner`, `lifecycle`, `mouse` and `keyboard-enhancements`).
+`spinner`, `lifecycle`, `mouse`, `keyboard-enhancements`, and, named
+after Bubble Tea's, `altscreen-toggle`, `cursor-style`,
+`set-window-title` and `package-manager`).
+
+As in Bubble Tea v2, a view is drawn inline unless it sets
+`alt_screen`. When an inline program quits, its last frame stays on
+screen, every row of it, and the shell prompt starts on the line below;
+a program that wants nothing left behind returns an empty view last.
 
 | Bubble Tea (Go) | petitcarnets |
 | --- | --- |
@@ -78,6 +91,12 @@ Run the examples with `cargo run --example counter` (also `picker`,
 | `case tea.MouseClickMsg:` | `tea::Msg::MouseClick(m) =>` |
 | `case tea.PasteMsg:` | `tea::Msg::Paste(text) =>` |
 | `v.MouseMode = tea.MouseModeAllMotion` | `view.with_mouse_mode(tea::MouseMode::AllMotion)` |
+| `v.AltScreen = true` | `view.with_alt_screen(true)` |
+| `v.Cursor = tea.NewCursor(x, y)` | `view.with_cursor(tea::Cursor::new(x, y))` |
+| `v.WindowTitle = "t"` | `view.with_window_title("t")` |
+| `tea.Println(s)`, `tea.Printf(f, a)` | `tea::println(s)`, `tea::printf!(f, a)` |
+| `tea.Raw(s)`, `tea.ClearScreen` | `tea::raw(s)`, `tea::clear_screen()` |
+| `tea.WithFPS(n)` | `Program::new(m).with_fps(n)` |
 | `case tea.WindowSizeMsg:` | `tea::Msg::WindowSize(size) =>` |
 | `return m, tea.Quit` | `return tea::quit()` |
 | `tea.Batch(a, b)`, `tea.Sequence(a, b)` | `tea::batch([a, b])`, `tea::sequence([a, b])` |
