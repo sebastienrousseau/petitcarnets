@@ -3,7 +3,75 @@
 All notable changes to this project are documented here. Every release is
 exactly 0.0.1 above the previous one.
 
-## [0.0.7] - Unreleased
+## [0.0.7] - 2026-11-28
+
+Docs and examples: sixteen more of Bubble Tea's examples ported (39 of
+its 64 now, each run in CI), an accessible output mode for screen
+readers, an example on every public item rustdoc counts, and guides for
+Bubble Tea and bubbletea-rs users.
+
+### Added
+
+- Accessible output, for screen readers and braille displays (Bubble
+  Tea's issue #780): `Program::with_accessible(bool)`, huh's
+  `WithAccessible`. Frames are printed as plain lines: each line that
+  differs from the line in its place in the frame before is printed
+  once, below what is already there, and blank lines are left out.
+  Nothing is redrawn, the cursor is never moved or hidden, the
+  alternate screen is not used, there is no synchronized output,
+  autowrap stays on and lines are not cut to the window; `println`
+  prints its lines the same way, and a repaint or a terminal handed
+  back prints the whole frame again. Colours and styles are left out
+  (the `NoTTY` profile) unless the program sets a profile; input works
+  as always. Without the call, a program in a real terminal turns it on
+  when `ACCESSIBLE` is set and not empty, the variable huh's
+  documentation tells programs to read, so the person at the terminal
+  decides. `tests/accessible.rs` checks the bytes written (golden files)
+  and that nothing redraws; the real-terminal smoke test runs the
+  counter with `ACCESSIBLE=1`.
+- Sixteen of Bubble Tea's examples, under their names: `simple`,
+  `fullscreen`, `window-size`, `debounce`, `focus-blur`, `sequence`,
+  `http` (plain HTTP over `std::net`), `send-msg`, `realtime`,
+  `prevent-quit`, `composable-views`, `split-editors`,
+  `set-terminal-color`, `views`, `vanish` and `result`, each with golden
+  tests in `tests/examples.rs` or `tests/bubbles_examples.rs` (39 golden
+  files). `docs/examples.md` lists all 64 of Bubble Tea's examples, and
+  why each one not ported yet is not.
+- Every example runs in CI: its model in a golden test, or for `exec`
+  and `suspend` its binary in the real-terminal smoke test; a test fails
+  if an example has neither. The Test job runs the example tests in a
+  step of their own.
+- A doc example, which asserts what it shows, on every public item
+  rustdoc counts for examples (from 8.9% to 100%); `missing_docs` is
+  denied crate-wide.
+- `docs/go-to-rust.md` (every exported name of Bubble Tea v2.1.1 and its
+  equivalent here, the idioms, and Go's `simple` example converted step
+  by step), `docs/migrating-from-bubbletea-rs.md`, `docs/architecture.md`
+  (the loop, threads, terminal guard, reader, decoder, renderer, output
+  queue, colours and test harness) and `docs/issues.md` (the Bubble Tea
+  and Bubbles issues petitcarnets addresses, the release and the test
+  for each).
+
+### Changed
+
+- Source files that grew past the 500-line ceiling with their doc
+  examples are split into child modules; no public path changes.
+- The README and the docs call Bubble Tea's #500 and #1773 pull
+  requests, which they are, and the crate docs say only Linux and macOS
+  are tested so far, as the README does (the FreeBSD code paths are not
+  yet run anywhere).
+
+### Fixed
+
+- A `println` taller than the room above an inline frame pushed the
+  frame off the screen until the next update; the frame is now drawn
+  again with the next frame, with no update needed (Bubble Tea's issue
+  #1822, which the 0.0.3 entry counted as fixed by design).
+
+### Fixed, compared with Bubble Tea's examples
+
+- `split-editors`: removing the focused editor focuses the new last one;
+  Go's leaves no editor focused.
 
 ## [0.0.6] - 2026-11-27
 
