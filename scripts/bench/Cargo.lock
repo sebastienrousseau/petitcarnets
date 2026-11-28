@@ -347,7 +347,7 @@ dependencies = [
 
 [[package]]
 name = "petitcarnets"
-version = "0.0.7"
+version = "0.0.8"
 
 [[package]]
 name = "petitcarnets-bench"

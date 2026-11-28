@@ -3,6 +3,8 @@
 All notable changes to this project are documented here. Every release is
 exactly 0.0.1 above the previous one.
 
+## [0.0.8] - Unreleased
+
 ## [0.0.7] - 2026-11-28
 
 Docs and examples: sixteen more of Bubble Tea's examples ported (39 of
