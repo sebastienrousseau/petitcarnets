@@ -5,6 +5,19 @@ exactly 0.0.1 above the previous one.
 
 ## [0.0.8] - Unreleased
 
+### Added
+
+- FreeBSD is tested: a CI job runs the tests and a real-terminal smoke
+  test in a FreeBSD 15 virtual machine.
+- `scripts/bsd-smoke.sh`: keys, Ctrl-C, a panic, SIGINT, SIGTERM and a
+  double SIGINT in a real pseudo-terminal under BSD `script(1)`, with
+  the terminal mode and screen checked after each; it runs on FreeBSD
+  and on the macOS CI runners.
+- The terminal guard's real pseudo-terminal test runs on macOS and
+  FreeBSD too: the test helper opens its pseudo-terminal with the POSIX
+  calls (`posix_openpt`, `grantpt`, `unlockpt`, `ptsname`) instead of
+  Linux's ioctls.
+
 ## [0.0.7] - 2026-11-28
 
 Docs and examples: sixteen more of Bubble Tea's examples ported (39 of

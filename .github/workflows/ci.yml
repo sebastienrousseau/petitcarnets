@@ -47,6 +47,11 @@ jobs:
         run: |
           cargo clippy --all-targets --no-default-features -- -D warnings
           cargo test --all-targets --no-default-features
+      # Keys, signals and restore in a real pseudo-terminal, with BSD
+      # script(1); Linux runs the full suite in the pty job.
+      - name: Real terminal smoke test (macOS)
+        if: matrix.os == 'macos-latest' && matrix.rust == 'stable'
+        run: bash scripts/bsd-smoke.sh
       - name: Doc tests
         run: cargo test --doc
       - name: Docs
@@ -64,6 +69,24 @@ jobs:
         with:
           targets: x86_64-unknown-linux-musl
       - run: cargo test --all-targets --target x86_64-unknown-linux-musl
+
+  # FreeBSD in a virtual machine: the tests (a real pseudo-terminal
+  # among them) and the real-terminal smoke test.
+  freebsd:
+    name: Test (FreeBSD)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Test in FreeBSD 15
+        uses: vmactions/freebsd-vm@811efaaac0668df8bfb8308c3ec997b5ab50037b # v1.6.0
+        with:
+          release: "15"
+          usesh: true
+          prepare: pkg install -y rust bash
+          run: |
+            cargo test --all-targets
+            cargo test --all-targets --no-default-features
+            bash scripts/bsd-smoke.sh
 
   fuzz:
     name: Fuzz (10M)
