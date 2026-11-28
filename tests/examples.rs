@@ -221,15 +221,20 @@ fn views_fills_the_bar_with_a_bounce_then_quits() {
     assert!(test.wait_finished(Duration::from_secs(5)));
 }
 
-/// The bar's colours are go-colorful's blend: the first and last of the
-/// 71 cells as Go prints them (`#b14ffe`, `#14fda4`).
+/// The bar's colours are go-colorful's blend, as Go prints them: cells
+/// 1, 2, 69 and 70 of the 71 (`#af53fd`, `#ae58fb`, `#20fba6`,
+/// `#14fda4`); all 70 from cell 1 on match Go's. Cell 0 is left out: it
+/// is the start colour after a Luv round trip, which lands within a few
+/// bits of whole numbers, so truncating it (as Go does) gives a byte
+/// that depends on the C library's `cbrt` and `powf` on the machine.
+/// Go's own is noise too (`#b14ffe` for `#B14FFF`).
 #[test]
 fn views_blends_the_bar_as_go_does() {
     let mut test = TestProgram::new(views::initial_model(), 80, 14);
     test.press(Key::new(KeyCode::Enter));
     assert!(test.wait_for(Duration::from_secs(2), |t| t.model().loaded));
     let out = String::from_utf8_lossy(test.output()).into_owned();
-    for rgb in ["177;79;254", "175;83;253", "32;251;166", "20;253;164"] {
+    for rgb in ["175;83;253", "174;88;251", "32;251;166", "20;253;164"] {
         assert!(out.contains(&format!("38;2;{rgb}m")), "{rgb}");
     }
 }
