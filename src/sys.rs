@@ -454,33 +454,51 @@ pub(crate) fn stop_process_group() -> io::Result<()> {
 }
 
 /// A new pseudo-terminal, for tests: its master end, and its slave end,
-/// which a program sees as its terminal. Linux only.
-#[cfg(all(test, target_os = "linux"))]
+/// which a program sees as its terminal. POSIX calls, so the same on
+/// Linux, macOS and FreeBSD.
+#[cfg(test)]
 pub(crate) fn open_pty() -> io::Result<(std::fs::File, std::fs::File)> {
-    use std::os::fd::AsRawFd;
+    use std::ffi::{CStr, c_char};
+    use std::os::fd::FromRawFd;
     use std::os::unix::fs::OpenOptionsExt;
+    unsafe extern "C" {
+        fn posix_openpt(flags: c_int) -> c_int;
+        fn grantpt(fd: c_int) -> c_int;
+        fn unlockpt(fd: c_int) -> c_int;
+        fn ptsname(fd: c_int) -> *const c_char;
+    }
+    /// `O_RDWR`, the same everywhere.
+    const O_RDWR: c_int = 2;
     /// `O_NOCTTY`: do not become the process's controlling terminal.
+    #[cfg(target_os = "linux")]
     const O_NOCTTY: c_int = 0o400;
-    /// `TIOCSPTLCK`: lock or unlock the slave end.
-    const TIOCSPTLCK: c_ulong = 0x4004_5431;
-    /// `TIOCGPTN`: the slave end's number.
-    const TIOCGPTN: c_ulong = 0x8004_5430;
-    let open = |path: &str| {
-        std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .custom_flags(O_NOCTTY)
-            .open(path)
-    };
-    let master = open("/dev/ptmx")?;
-    let mut unlock: c_int = 0;
-    let mut number: std::ffi::c_uint = 0;
-    // SAFETY: both requests take a pointer to one `int`-sized value,
-    // which here is a live local; the descriptor is open.
-    let _ = check(unsafe { ioctl(master.as_raw_fd(), TIOCSPTLCK, &raw mut unlock) })?;
+    #[cfg(target_os = "macos")]
+    const O_NOCTTY: c_int = 0x2_0000;
+    #[cfg(target_os = "freebsd")]
+    const O_NOCTTY: c_int = 0x8000;
+    // SAFETY: takes flags only.
+    let fd = check(unsafe { posix_openpt(O_RDWR | O_NOCTTY) })?;
+    // SAFETY: `fd` was just opened and nothing else owns it.
+    let master = unsafe { std::fs::File::from_raw_fd(fd) };
+    // SAFETY: `fd` is an open pseudo-terminal master.
+    check(unsafe { grantpt(fd) }).map(drop)?;
     // SAFETY: as above.
-    let _ = check(unsafe { ioctl(master.as_raw_fd(), TIOCGPTN, &raw mut number) })?;
-    let slave = open(&format!("/dev/pts/{number}"))?;
+    check(unsafe { unlockpt(fd) }).map(drop)?;
+    // SAFETY: as above; the name is in a static buffer, copied at once
+    // (only one test opens a pseudo-terminal, so no call races it).
+    let name = unsafe { ptsname(fd) };
+    if name.is_null() {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: `ptsname` returned a non-null, NUL-terminated string.
+    let path = unsafe { CStr::from_ptr(name) }
+        .to_string_lossy()
+        .into_owned();
+    let slave = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(O_NOCTTY)
+        .open(path)?;
     Ok((master, slave))
 }
 

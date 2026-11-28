@@ -36,7 +36,6 @@ fn modes_turn_off_newest_first_and_toggled_ones_drop_out() {
 }
 
 /// Every byte the master end has to read now.
-#[cfg(target_os = "linux")]
 fn drain(master: c_int) -> Vec<u8> {
     let mut out = Vec::new();
     let mut buf = [0u8; 256];
@@ -53,7 +52,6 @@ fn drain(master: c_int) -> Vec<u8> {
 /// and off, handing over and back, and restoring, on a real
 /// pseudo-terminal.
 #[test]
-#[cfg(target_os = "linux")]
 #[cfg_attr(miri, ignore)] // calls libc through src/sys.rs
 fn a_guard_drives_a_real_terminal_and_gives_it_back() {
     use std::os::fd::AsRawFd;
