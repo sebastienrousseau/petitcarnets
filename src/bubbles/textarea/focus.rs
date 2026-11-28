@@ -123,7 +123,9 @@ impl Model {
         self.recalculate_height();
     }
 
-    /// A prompt drawn by `prompt` for each line, `columns` wide.
+    /// A prompt drawn by `prompt` for each line, `columns` wide:
+    /// Bubbles' `SetPromptFunc`. `prompt` is a closure, so it may capture
+    /// state; a plain `fn` works too.
     ///
     /// ```
     /// use petitcarnets as tea;
@@ -134,9 +136,18 @@ impl Model {
     /// area.set_prompt_func(3, |info| if info.focused { "> " } else { "  " }.into());
     /// area.set_width(20);
     /// assert_eq!(area.width(), 17, "less the three prompt columns");
+    ///
+    /// let mark = String::from("*");
+    /// area.set_prompt_func(1, move |_| mark.clone());
+    /// let first = tea::style::strip_ansi(&area.view());
+    /// assert!(first.starts_with("* "), "{first:?}");
     /// ```
-    pub fn set_prompt_func(&mut self, columns: usize, prompt: fn(PromptInfo) -> String) {
-        self.prompt_fn = Some(prompt);
+    pub fn set_prompt_func(
+        &mut self,
+        columns: usize,
+        prompt: impl Fn(PromptInfo) -> String + Send + Sync + 'static,
+    ) {
+        self.prompt_fn = Some(std::sync::Arc::new(prompt));
         self.prompt_width = columns;
     }
 

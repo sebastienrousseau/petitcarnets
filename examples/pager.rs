@@ -6,6 +6,7 @@
 //! `cargo run --example pager`
 
 use petitcarnets as tea;
+use std::sync::Arc;
 use tea::bubbles::viewport::{self, GutterContext};
 use tea::style::{Border, Position, Style, block_width, height, join_horizontal};
 
@@ -125,7 +126,7 @@ impl tea::Model for Model {
                 } else {
                     self.viewport = viewport::Model::new(w, h);
                     self.viewport.y_position = height(&self.header_view());
-                    self.viewport.left_gutter = Some(gutter);
+                    self.viewport.left_gutter = Some(Arc::new(gutter));
                     self.viewport.set_content(self.content);
                     self.ready = true;
                 }

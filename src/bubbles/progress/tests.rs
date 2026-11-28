@@ -110,7 +110,7 @@ fn spring_step(frequency: f64, damping: f64, (pos, vel): (f64, f64)) -> (f64, f6
 
 #[test]
 fn colours_come_from_a_function_or_one_colour() {
-    let f: ColorFn = |_, current| {
+    let f = |_, current: f64| {
         if current < 0.42 {
             Color::RED
         } else {
@@ -178,4 +178,24 @@ fn the_bar_springs_to_its_percentage_on_its_own_frames() {
     assert_eq!(strip_ansi(&bar.view()), "▌▌▌▌░░░░░░░░░░░  25%");
     bar.set_width(10);
     assert_eq!(strip_ansi(&bar.view_as(f64::NAN)), "░░░░░   0%");
+}
+
+#[test]
+fn colour_and_percentage_are_closures_that_keep_state() {
+    let cut = 0.5;
+    let unit = String::from("pct");
+    let mut bar = Model::new()
+        .with_fill_characters('█', ' ')
+        .with_color_fn(move |_, cell| if cell < cut { Color::RED } else { Color::BLUE })
+        .with_width(12);
+    bar.percent_format = Arc::new(move |p| format!(" {p:.0}{unit}"));
+    let copy = bar.clone();
+    let view = bar.view_as(1.0);
+    assert!(view.starts_with("\x1b[31m█"), "{view:?}");
+    assert!(view.contains("\x1b[34m█"), "{view:?}");
+    assert!(strip_ansi(&view).ends_with(" 100pct"), "{view:?}");
+    assert_eq!(copy.view_as(1.0), view, "a clone shares the closures");
+    let debug = format!("{bar:?}");
+    assert!(debug.contains("percent_format: .."), "{debug}");
+    assert!(debug.contains("color_fn: Some(..)"), "{debug}");
 }

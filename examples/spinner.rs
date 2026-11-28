@@ -56,8 +56,8 @@ impl tea::Model for Loader {
             ),
             Some(n) => format!(
                 "\n  Done: 20! = {}\n\n  {}",
-                Style::new().bold().paint(&n.to_string()),
-                Style::new().dim().paint("q to quit")
+                Style::new().bold(true).paint(&n.to_string()),
+                Style::new().dim(true).paint("q to quit")
             ),
         };
         // Inline, as Bubble Tea's spinner example: the result stays in

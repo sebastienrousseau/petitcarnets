@@ -25,6 +25,7 @@ pub use keymap::KeyMap;
 use super::key::Binding;
 use crate::style::{Style, width};
 use crate::{Cmd, KeyMod, MouseButton, Msg};
+use std::sync::Arc;
 
 /// A binding of the key map.
 type Field = fn(&KeyMap) -> &Binding;
@@ -40,10 +41,13 @@ const HORIZONTAL_STEP: usize = 6;
 ///
 /// ```
 /// use petitcarnets as tea;
+/// use std::sync::Arc;
 /// use tea::bubbles::viewport;
 ///
 /// let mut v = viewport::Model::new(6, 2);
-/// v.left_gutter = Some(|g: viewport::GutterContext| format!("{} ", g.index + 1));
+/// v.left_gutter = Some(Arc::new(|g: viewport::GutterContext| {
+///     format!("{} ", g.index + 1)
+/// }));
 /// v.set_content("a\nb");
 /// assert_eq!(v.view(), "1 a   \n2 b   ");
 /// ```
@@ -57,8 +61,21 @@ pub struct GutterContext {
     pub soft: bool,
 }
 
-/// Draws the gutter left of a line: Bubbles' `viewport.GutterFunc`.
-pub type GutterFn = fn(GutterContext) -> String;
+/// Draws the gutter left of a line: Bubbles' `viewport.GutterFunc`. A
+/// closure, so it may capture state; a plain `fn` works too.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use std::sync::Arc;
+/// use tea::bubbles::viewport;
+///
+/// let mark = String::from("> ");
+/// let mut v = viewport::Model::new(4, 1);
+/// v.left_gutter = Some(Arc::new(move |_: viewport::GutterContext| mark.clone()));
+/// v.set_content("a");
+/// assert_eq!(v.view(), "> a ");
+/// ```
+pub type GutterFn = Arc<dyn Fn(GutterContext) -> String + Send + Sync>;
 
 /// A viewport: Bubbles' `viewport.Model`.
 ///
@@ -71,7 +88,7 @@ pub type GutterFn = fn(GutterContext) -> String;
 /// v.set_content("abcdef");
 /// assert_eq!(v.view(), "abc\ndef");
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Model {
     width: usize,
     height: usize,
@@ -91,8 +108,8 @@ pub struct Model {
     pub style: Style,
     /// Draws a gutter left of each line.
     pub left_gutter: Option<GutterFn>,
-    /// A style for each line, by index.
-    pub style_line: Option<fn(usize) -> Style>,
+    /// A style for each line, by index: Bubbles' `StyleLineFunc`.
+    pub style_line: Option<Arc<dyn Fn(usize) -> Style + Send + Sync>>,
     y_offset: usize,
     x_offset: usize,
     horizontal_step: usize,

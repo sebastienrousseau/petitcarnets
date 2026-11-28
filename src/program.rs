@@ -222,6 +222,18 @@ impl<M: Model> Program<M> {
     /// profile with [`Program::with_color_profile`]. Input works as it
     /// always does.
     ///
+    /// So that it does, the input modes are still written: bracketed
+    /// paste (`\x1b[?2004h`), modifyOtherKeys (`\x1b[>4;2m`) and the
+    /// kitty keyboard flags (`\x1b[>1u`) before the first line, and their
+    /// resets (`\x1b[>4m`, `\x1b[<u`, `\x1b[?2004l`) at the end; mouse
+    /// tracking, focus reports and the window title too when the view
+    /// asks for them. On a real terminal the terminal guard also hides the
+    /// cursor on entry and shows it on exit (`\x1b[?25l`, `\x1b[?25h`),
+    /// and the line printer shows it before the first line. Output
+    /// captured to a file (a `script` log, or a [`Backend`] given to
+    /// [`Program::run_with`] that writes to one) therefore holds these
+    /// few sequences at its start and its end, around the plain lines.
+    ///
     /// ```
     /// use petitcarnets as tea;
     /// use tea::testing::{TestProgram, TestTerminal};
@@ -252,6 +264,9 @@ impl<M: Model> Program<M> {
     /// // The changed line is printed again below, never redrawn in place.
     /// assert!(out.contains("Count: 0\r\nq: quit\r\nCount: 1\r\n"));
     /// assert!(!out.contains("\x1b[?1049h"), "no alternate screen");
+    /// // The input modes, set before the first line and reset at the end.
+    /// assert!(out.starts_with("\x1b[?2004h\x1b[>4;2m\x1b[>1uCount: 0\r\n"));
+    /// assert!(out.ends_with("Count: 1\r\n\x1b[>4m\x1b[<u\x1b[?2004l"));
     /// ```
     #[must_use]
     pub const fn with_accessible(mut self, on: bool) -> Self {

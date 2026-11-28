@@ -135,6 +135,44 @@ impl<M> Default for Cmd<M> {
     }
 }
 
+/// Runs `work` on its own thread and sends its result as a message, as
+/// [`Cmd::task`] does. Go has no `tea.Task`: a Bubble Tea `Cmd` is a
+/// `func() tea.Msg`, and `tea::task(|| ...)` is the equivalent of
+/// returning such a function.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use std::time::Duration;
+/// use tea::testing::TestProgram;
+///
+/// struct Answer(Option<u32>);
+///
+/// impl tea::Model for Answer {
+///     type Msg = u32;
+///     fn init(&mut self) -> tea::Cmd<u32> {
+///         tea::task(|| 6 * 7)
+///     }
+///     fn update(&mut self, msg: tea::Msg<u32>) -> tea::Cmd<u32> {
+///         if let tea::Msg::App(n) = msg {
+///             self.0 = Some(n);
+///         }
+///         tea::Cmd::none()
+///     }
+///     fn view(&self) -> tea::View {
+///         format!("{:?}", self.0).into()
+///     }
+/// }
+///
+/// let mut test = TestProgram::new(Answer(None), 10, 1);
+/// assert_eq!(test.model().0, Some(42));
+/// test.advance(Duration::from_millis(100));
+/// assert_eq!(test.screen().text(), "Some(42)");
+/// ```
+#[must_use]
+pub fn task<M>(work: impl FnOnce() -> M + Send + 'static) -> Cmd<M> {
+    Cmd::task(work)
+}
+
 /// Stops the program; [`Program::run`](crate::Program::run) returns the
 /// model. Bubble Tea's `tea.Quit`.
 #[must_use]

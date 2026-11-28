@@ -33,6 +33,7 @@ use super::cursor::{self, Mode};
 use super::{Flags, viewport};
 use crate::style::{Border, Style};
 use crate::{Cmd, Msg as TeaMsg, batch};
+use std::sync::Arc;
 
 /// A text area's messages: its cursor's blinks.
 pub type Msg = cursor::Msg;
@@ -129,7 +130,7 @@ const PASTE_PENDING: u16 = 1 << 4;
 /// let first = tea::style::strip_ansi(&area.view());
 /// assert!(first.starts_with("┃ Say something"));
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Model {
     /// The last error, if any.
     pub err: Option<String>,
@@ -158,7 +159,7 @@ pub struct Model {
     pub max_content_height: usize,
     styles: Styles,
     virtual_cursor: cursor::Model,
-    prompt_fn: Option<fn(PromptInfo) -> String>,
+    prompt_fn: Option<Arc<dyn Fn(PromptInfo) -> String + Send + Sync>>,
     prompt_width: usize,
     width: usize,
     height: usize,
@@ -254,7 +255,7 @@ impl Model {
     /// use tea::bubbles::textarea;
     ///
     /// let mut styles = textarea::Styles::new(false);
-    /// styles.focused.prompt = tea::style::Style::new().bold();
+    /// styles.focused.prompt = tea::style::Style::new().bold(true);
     /// let mut area = textarea::Model::new();
     /// area.set_styles(styles);
     /// assert_eq!(area.styles(), styles);

@@ -229,8 +229,11 @@ fn narrow_lists_page_with_numbers() {
         !strip_ansi(&l.view()).contains("Raspberry"),
         "nothing drawn at width 0"
     );
-    l.additional_short_help_keys = Some(|| vec![Binding::new(&["x"]).with_help("x", "extra")]);
-    l.additional_full_help_keys = l.additional_short_help_keys;
+    l.additional_short_help_keys = Some(Arc::new(|| {
+        vec![Binding::new(&["x"]).with_help("x", "extra")]
+    }));
+    l.additional_full_help_keys
+        .clone_from(&l.additional_short_help_keys);
     l.set_width(80);
     assert!(strip_ansi(&l.view()).contains("x extra"));
     l.help.show_all = true;
@@ -240,4 +243,45 @@ fn narrow_lists_page_with_numbers() {
         strip_ansi(&l.view())
     );
     assert_eq!(unsorted_filter("", &[]), []);
+}
+
+#[test]
+fn the_filter_and_help_keys_are_closures_that_keep_state() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let mut l = Model::new(things(), DefaultDelegate::new(), 80, 24);
+    let exact = String::from("Cats");
+    l.filter = Arc::new(move |term: &str, targets: &[String]| {
+        let hits = targets.iter().enumerate();
+        hits.filter(|(_, t)| t.as_str() == exact && term.starts_with('c'))
+            .map(|(index, _)| Rank {
+                index,
+                matched_indexes: Vec::new(),
+            })
+            .collect()
+    });
+    l.set_filter_text("c");
+    let shown: Vec<&str> = l.visible_items().iter().map(|t| t.0).collect();
+    assert_eq!(shown, ["Cats"], "the captured string chose");
+    let asked = Arc::new(AtomicUsize::new(0));
+    let seen = Arc::clone(&asked);
+    let label = String::from("extra");
+    l.additional_short_help_keys = Some(Arc::new(move || {
+        let _ = seen.fetch_add(1, Ordering::Relaxed);
+        vec![Binding::new(&["x"]).with_help("x", &label)]
+    }));
+    l.set_filter_state(FilterState::Unfiltered);
+    let copy = l.clone();
+    assert!(strip_ansi(&l.view()).contains("x extra"));
+    assert!(
+        strip_ansi(&copy.view()).contains("x extra"),
+        "a clone shares it"
+    );
+    assert!(asked.load(Ordering::Relaxed) >= 2);
+    let debug = format!("{l:?}");
+    assert!(
+        debug.contains(
+            "filter: .., additional_short_help_keys: Some(..), additional_full_help_keys: None"
+        ),
+        "{debug}"
+    );
 }

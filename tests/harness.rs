@@ -275,17 +275,23 @@ fn the_frame_rate_holds_frames_back_on_the_virtual_clock() {
     let program = tea::Program::new(Rig::default()).with_fps(10);
     let mut test = TestProgram::with_terminal(program, TestTerminal::new(20, 3));
     test.send("now".to_string());
-    assert_eq!(test.screen().text(), "updates 2", "held back");
-    test.advance(ms(99));
-    assert_eq!(test.screen().text(), "updates 2");
+    assert_eq!(test.screen().text(), "updates 3", "shown when send returns");
+    test.advance(ms(950));
+    test.press(Key::char('e'));
+    assert_eq!(test.screen().text(), "updates 4", "a key draws at once");
+    test.advance(ms(50));
+    assert_eq!(seen(&test).last(), Some(&"every 0"), "the timer fired");
+    assert_eq!(test.screen().text(), "updates 4", "held back");
+    test.advance(ms(49));
+    assert_eq!(test.screen().text(), "updates 4");
     test.advance(ms(1));
     assert_eq!(
         test.screen().text(),
-        "updates 3",
+        "updates 5",
         "drawn 100 ms after the last"
     );
     test.press(Key::char('y'));
-    assert_eq!(test.screen().text(), "updates 4", "a key draws at once");
+    assert_eq!(test.screen().text(), "updates 6", "a key draws at once");
 }
 
 #[test]
@@ -475,4 +481,43 @@ fn a_print_taller_than_the_window_leaves_the_frame_on_screen() {
     assert_eq!(rows[8], "first row of the view", "{rows:#?}");
     assert_eq!(rows[9], "second row of the view", "{rows:#?}");
     assert_eq!(rows[7], "line 12", "{rows:#?}");
+}
+
+/// Starts a task on Enter; the task's message changes the view.
+#[derive(Default)]
+struct Loader {
+    loaded: bool,
+}
+
+impl tea::Model for Loader {
+    type Msg = ();
+
+    fn update(&mut self, msg: Msg<()>) -> tea::Cmd<()> {
+        match msg {
+            Msg::KeyPress(k) if k == "enter" => tea::Cmd::task(|| ()),
+            Msg::App(()) => {
+                self.loaded = true;
+                tea::Cmd::none()
+            }
+            _ => tea::Cmd::none(),
+        }
+    }
+
+    fn view(&self) -> tea::View {
+        if self.loaded { "loaded" } else { "loading" }.into()
+    }
+}
+
+/// A call that gives the program something returns with the screen
+/// showing the model as it is: here a task's message arrives after the
+/// frame for the key that started it, and the frame rate holds the next
+/// frame back, which the still clock would never release on its own.
+#[test]
+fn a_tasks_message_is_on_screen_when_the_call_returns() {
+    let mut test = TestProgram::new(Loader::default(), 20, 3);
+    let start = test.elapsed();
+    test.press(Key::new(tea::KeyCode::Enter));
+    assert!(test.model().loaded);
+    assert_eq!(test.screen().row_text(0), "loaded");
+    assert_eq!(test.elapsed(), start, "and the clock has not moved");
 }

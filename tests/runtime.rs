@@ -538,19 +538,21 @@ fn with_fps_limits_how_often_frames_are_drawn() {
     let (raw, test) = ticking(300, 10, 0);
     assert_eq!(test.elapsed(), ms(300));
     let frames = raw.matches("\x1b[?2026h").count();
-    // One frame each 100 ms of the 300 the ticks take; the last tick
-    // quits, with its frame.
-    assert_eq!(frames, 3, "{raw:?}");
+    // One frame each 100 ms of the 300 the ticks take, the last tick
+    // quitting with its frame; and one each for the mode report and the
+    // send, which `TestProgram` draws as the call returns.
+    assert_eq!(frames, 2 + 3, "{raw:?}");
     assert_eq!(test.final_model().ticks, 300);
 }
 
 #[test]
 fn a_frame_after_a_key_is_drawn_at_once() {
     // At 1 fps, five keys 20 ms apart still each get a frame at once,
-    // and so does the q that ends the run.
+    // and so does the q that ends the run (after the mode report's frame,
+    // which `TestProgram` draws as the call returns).
     let (raw, test) = ticking(0, 1, 5);
     assert_eq!(test.elapsed(), ms(100), "never held back for a second");
-    assert_eq!(raw.matches("\x1b[?2026h").count(), 6, "{raw:?}");
+    assert_eq!(raw.matches("\x1b[?2026h").count(), 1 + 6, "{raw:?}");
 }
 
 /// Shows one line, without a trailing newline, until `x` empties it.

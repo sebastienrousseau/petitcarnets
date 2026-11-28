@@ -66,17 +66,19 @@ fn text_input_editing_matches_bubbles() {
 // The text input's own behaviour.
 
 use crate::{ClipboardSelection, Key, Msg as TeaMsg};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[test]
 fn values_validation_and_suggestions() {
     let mut m = Model {
-        validate: Some(|s| {
+        validate: Some(Arc::new(|s: &str| {
             if s.contains('!') {
                 Err("no shouting".into())
             } else {
                 Ok(())
             }
-        }),
+        })),
         ..Model::default()
     };
     m.set_value("hi\tthere!");
@@ -166,4 +168,28 @@ fn thai_clusters_and_emoji_placeholders_stay_whole() {
         "> 👍🏽 yes   ",
         "eleven cells, the emoji four of them"
     );
+}
+
+#[test]
+fn validate_is_a_closure_that_keeps_state() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let seen = Arc::clone(&calls);
+    let banned = String::from("rm");
+    let mut m = Model::new();
+    m.validate = Some(Arc::new(move |s: &str| {
+        let _ = seen.fetch_add(1, Ordering::Relaxed);
+        if s.contains(banned.as_str()) {
+            Err(format!("no {banned}"))
+        } else {
+            Ok(())
+        }
+    }));
+    m.set_value("ls");
+    assert_eq!(m.err, None);
+    let copy = m.clone();
+    m.set_value("rm -rf");
+    assert_eq!(m.err.as_deref(), Some("no rm"));
+    assert_eq!(calls.load(Ordering::Relaxed), 2, "called on each change");
+    assert_eq!(copy.err, None, "a clone keeps its own error");
+    assert!(format!("{m:?}").contains("validate: Some(..)"));
 }

@@ -140,6 +140,25 @@ impl Flags {
     }
 }
 
+/// A stored closure where a component's `Debug` shows it: `..`, as a
+/// closure has nothing to show.
+struct Opaque;
+
+impl std::fmt::Debug for Opaque {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("..")
+    }
+}
+
+/// How a component's `Debug` shows an optional closure: `Some(..)` or
+/// `None`.
+const fn opaque<T>(callback: Option<&T>) -> Option<Opaque> {
+    match callback {
+        Some(_) => Some(Opaque),
+        None => None,
+    }
+}
+
 /// The last id given to a component; ids start at 1.
 static LAST_ID: AtomicU64 = AtomicU64::new(0);
 

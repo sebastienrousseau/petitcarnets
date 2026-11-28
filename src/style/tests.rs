@@ -8,7 +8,7 @@ fn a_plain_style_leaves_text_alone() {
 #[test]
 fn styles_become_sgr_codes() {
     assert_eq!(
-        Style::new().bold().fg(Color::RED).paint("x"),
+        Style::new().bold(true).fg(Color::RED).paint("x"),
         "\x1b[1;31mx\x1b[0m"
     );
     assert_eq!(
@@ -27,14 +27,19 @@ fn styles_become_sgr_codes() {
         "\x1b[48;2;1;2;3mx\x1b[0m"
     );
     assert_eq!(
-        Style::new().dim().italic().underline().reverse().paint("x"),
+        Style::new()
+            .dim(true)
+            .italic(true)
+            .underline(true)
+            .reverse(true)
+            .paint("x"),
         "\x1b[2;3;4;7mx\x1b[0m"
     );
 }
 
 #[test]
 fn width_ignores_escape_sequences() {
-    let s = Style::new().bold().fg(Color::GREEN).paint("héllo");
+    let s = Style::new().bold(true).fg(Color::GREEN).paint("héllo");
     assert_eq!(width(&s), 5);
     assert_eq!(strip_ansi(&s), "héllo");
 }
@@ -55,7 +60,7 @@ fn width_counts_wide_characters_twice() {
 fn truncation_keeps_styles_and_resets() {
     assert_eq!(truncate("hello", 10), "hello");
     assert_eq!(truncate("hello", 3), "hel\x1b[0m");
-    let styled = Style::new().bold().paint("hello");
+    let styled = Style::new().bold(true).paint("hello");
     assert_eq!(strip_ansi(&truncate(&styled, 2)), "he");
     assert!(truncate(&styled, 2).ends_with("\x1b[0m"));
 }
@@ -65,11 +70,11 @@ fn every_builder_sets_what_it_says() {
     let s = Style::new()
         .fg(Color::YELLOW)
         .bg(Color::BLUE)
-        .bold()
-        .dim()
-        .italic()
-        .underline()
-        .reverse()
+        .bold(true)
+        .dim(true)
+        .italic(true)
+        .underline(true)
+        .reverse(true)
         .padding(1, 2)
         .margin(1, 1)
         .border(Border::DOUBLE)
@@ -91,8 +96,8 @@ fn every_builder_sets_what_it_says() {
     assert_eq!(
         Style::new()
             .fg(Color::CYAN)
-            .inherit(Style::new().fg(Color::RED).bg(Color::WHITE).bold()),
-        Style::new().fg(Color::CYAN).bg(Color::WHITE).bold()
+            .inherit(Style::new().fg(Color::RED).bg(Color::WHITE).bold(true)),
+        Style::new().fg(Color::CYAN).bg(Color::WHITE).bold(true)
     );
     assert_ne!(Color::GREY, Color::BLACK);
 }
@@ -118,7 +123,7 @@ fn a_block_gets_its_border_padding_margins_and_size() {
         .render("x");
     assert_eq!(thick, "x", "no side, no border");
     let reversed = Style::new()
-        .reverse()
+        .reverse(true)
         .fg(Color::RED)
         .padding(0, 1)
         .render("x");
@@ -127,7 +132,7 @@ fn a_block_gets_its_border_padding_margins_and_size() {
         reversed.starts_with("\x1b[7;31m"),
         "spaces keep the reversed colours"
     );
-    let tabs = Style::new().bold().render("a\tb\r\nc");
+    let tabs = Style::new().bold(true).render("a\tb\r\nc");
     assert_eq!(strip_ansi(&tabs), "a    b\nc     ");
 }
 
@@ -143,7 +148,7 @@ fn blocks_join_cut_wrap_and_measure() {
     assert_eq!(join_horizontal(Position::TOP, &[]), "");
     assert_eq!(block_width("a\nabc\n"), 3);
     assert_eq!(height(""), 1);
-    let styled = Style::new().bold().paint("abcdef");
+    let styled = Style::new().bold(true).paint("abcdef");
     assert_eq!(strip_ansi(&cut(&styled, 2, 4)), "cd");
     assert!(
         cut(&styled, 2, 4).starts_with("\x1b[1m"),

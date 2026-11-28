@@ -372,6 +372,19 @@ impl<A: Send + 'static, C: Clock> Loop<A, C> {
         self.draw(&self.view_of(model), backend)
     }
 
+    /// Draws the frame the frame rate holds back, if there is one, at
+    /// once.
+    pub(super) fn show<M: Model<Msg = A>>(
+        &mut self,
+        model: &M,
+        backend: &mut impl Backend,
+    ) -> Result<(), Error> {
+        if self.frame_due.is_none() {
+            return Ok(());
+        }
+        self.draw(&self.view_of(model), backend)
+    }
+
     /// What `model` shows now; printed as lines, a view stays on the
     /// normal screen and has no cursor.
     fn view_of<M: Model<Msg = A>>(&self, model: &M) -> View {

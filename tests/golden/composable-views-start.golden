@@ -1,11 +1,11 @@
 size 50x8, main screen
-cursor 0,6 hidden, style 0
+cursor 23,2 hidden, style 0
 modes 2004
 keyboard flags 1, modifyOtherKeys 2
 --------------------------------------------------
 ┌─────────────┐
 │             │
-│    1m0s     │       |
+│    1m0s     │       /
 │             │
 └─────────────┘
 tab: focus next • n: new timer • q: exit

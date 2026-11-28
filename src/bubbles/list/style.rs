@@ -117,7 +117,7 @@ impl Styles {
                 .padding(0, 1),
             spinner: Style::new().fg(pick(is_dark, 0x74_7373, 0x8E_8E8E)),
             filter,
-            default_filter_character_match: Style::new().underline(),
+            default_filter_character_match: Style::new().underline(true),
             status_bar: Style::new()
                 .fg(pick(is_dark, 0x77_7777, 0xA4_9FA5))
                 .padding_sides(0, 0, 1, 2),
@@ -166,7 +166,7 @@ impl Styles {
 ///
 /// let mut l = fruits();
 /// let mut d = list::DefaultDelegate::new();
-/// d.styles.selected_title = tea::style::Style::new().bold();
+/// d.styles.selected_title = tea::style::Style::new().bold(true);
 /// l.set_delegate(d);
 /// assert!(l.view().contains("\x1b[1mapple\x1b[0m"));
 /// ```
@@ -228,7 +228,7 @@ impl DefaultItemStyles {
             selected_desc: selected_title.fg(pick(is_dark, 0xAD_58B4, 0xF7_93FF)),
             dimmed_title,
             dimmed_desc: dimmed_title.fg(pick(is_dark, 0x4D_4D4D, 0xC2_B8C2)),
-            filter_match: Style::new().underline(),
+            filter_match: Style::new().underline(true),
         }
     }
 }
