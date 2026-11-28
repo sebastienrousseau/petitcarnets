@@ -1,0 +1,8 @@
+size 40x5, main screen
+cursor 17,0 hidden, style 0
+modes 2004
+keyboard flags 1, modifyOtherKeys 2
+----------------------------------------
+Exiting in 3.5s
+
+s stop • r reset • q quit

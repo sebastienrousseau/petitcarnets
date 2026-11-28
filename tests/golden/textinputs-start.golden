@@ -1,0 +1,12 @@
+size 50x10, main screen
+cursor 45,6 hidden, style 0
+modes 2004
+keyboard flags 1, modifyOtherKeys 2
+--------------------------------------------------
+> Nickname
+> Email
+> Password
+
+[ Submit ]
+
+cursor mode is blink (ctrl+r to change style)

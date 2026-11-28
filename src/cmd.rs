@@ -2,6 +2,7 @@
 //! back as messages.
 
 mod lifecycle;
+mod map;
 mod query;
 
 pub use lifecycle::{
@@ -307,6 +308,30 @@ mod tests {
             "batch([exec(..), suspend, release_terminal, restore_terminal, Repaint, \
              WindowSize, Raw([27, 93, 53, 50, 59, 99, 59, 89, 81, 61, 61, 7])])"
         );
+    }
+
+    #[test]
+    fn mapped_commands_keep_what_they_are() {
+        let cmds = batch([
+            Cmd::<u8>::none(),
+            quit(),
+            interrupt(),
+            suspend(),
+            release_terminal(),
+            restore_terminal(),
+            Cmd(Inner::Handover(Handover::Continue)),
+            println("hi"),
+            sequence([
+                tick(Duration::from_millis(5), |_| 1),
+                every(Duration::from_secs(1), |_| 2),
+            ]),
+        ]);
+        assert_eq!(
+            format!("{:?}", cmds.map(u16::from)),
+            "batch([quit, interrupt, suspend, release_terminal, restore_terminal, continue, \
+             Print(\"hi\"), sequence([tick(5ms, ..), every(1s, ..)])])"
+        );
+        assert!(Cmd::<u8>::none().map(u16::from).is_none());
     }
 
     #[test]

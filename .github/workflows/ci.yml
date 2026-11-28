@@ -34,13 +34,20 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
       - name: Test
         run: cargo test --all-targets
+      # The components are a default feature; the crate must build and
+      # pass without them too.
+      - name: Clippy and test without the components
+        if: matrix.rust == 'stable'
+        run: |
+          cargo clippy --all-targets --no-default-features -- -D warnings
+          cargo test --all-targets --no-default-features
       - name: Doc tests
         run: cargo test --doc
       - name: Docs
         if: matrix.rust == 'stable'
         env:
           RUSTDOCFLAGS: -D warnings
-        run: cargo doc --no-deps
+        run: cargo doc --no-deps --all-features
 
   musl:
     name: Test (musl)
@@ -128,8 +135,10 @@ jobs:
       # skipped tests check thousands of fixture lines against Go (or a
       # hundred thousand inputs, or wake a program a hundred thousand
       # times) through code the other tests run too;
-      # under Miri they would take hours. Isolation is off for the golden
-      # files and the clock.
+      # under Miri they would take hours. The components (bubbles::) are
+      # safe Rust with no FFI, checked against Go and stressed by the
+      # other jobs, so they are not run here either. Isolation is off for
+      # the golden files and the clock.
       - name: Undefined behaviour checks
         env:
           MIRIFLAGS: -Zmiri-disable-isolation
@@ -139,6 +148,7 @@ jobs:
           --skip fuzz_a_hundred_thousand_inputs
           --skip a_long_sequence_of_instant_commands
           --skip a_program_that_never_idles_is_reported
+          --skip bubbles::
 
   tsan:
     name: ThreadSanitizer

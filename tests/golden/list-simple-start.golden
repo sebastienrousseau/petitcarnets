@@ -1,0 +1,19 @@
+size 40x20, main screen
+cursor 0,14 hidden, style 0
+modes 2004
+keyboard flags 1, modifyOtherKeys 2
+----------------------------------------
+
+    What do you want for dinner?
+
+  > 1. Ramen
+    2. Tomato Soup
+    3. Hamburgers
+    4. Cheeseburgers
+    5. Currywurst
+    6. Okonomiyaki
+    7. Pasta
+
+    ••
+
+    ↑/k up • ↓/j down • q quit • ? more

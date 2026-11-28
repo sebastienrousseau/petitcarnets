@@ -1,0 +1,15 @@
+size 50x14, main screen
+cursor 25,4 shown, style 1
+modes 25 2004
+keyboard flags 1, modifyOtherKeys 2
+--------------------------------------------------
+Tell me a story.
+
+┃   1 Once there was a notebook that
+┃     wanted to see the sea.
+┃   2 It packed a pencil.
+┃
+┃
+┃
+
+(ctrl+c to quit)

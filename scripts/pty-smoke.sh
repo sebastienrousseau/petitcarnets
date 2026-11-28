@@ -11,12 +11,12 @@
 # exactly the keys typed while it runs and the program the rest, with
 # every mode back after; Ctrl-Z and `kill -TSTP` suspend and `kill
 # -CONT` resumes with a fresh frame; NO_COLOR leaves no colour in frames or
-# printed lines; and replies to queries never reach the shell. Linux
-# only.
+# printed lines; replies to queries never reach the shell; and a text
+# input takes UTF-8 typed in a real terminal. Linux only.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 cargo build -q --example counter --example lifecycle --example mouse --example package-manager \
-  --example exec --example suspend --example query-term
+  --example exec --example suspend --example query-term --example textinput
 dir="$(mktemp -d)"
 trap 'rm -rf "$dir"' EXIT
 fails=0
@@ -330,6 +330,23 @@ elif [[ "$after" == *'^['* || "$after" == *rgb* || "$after" == *fake-term* ]]; t
   echo "FAIL replies: reply bytes reached the shell: $(printf %q "$after" | head -c 300)"; fails=$((fails + 1))
 else
   echo "ok   replies: seven queries, quit at once, no reply bytes after exit"
+fi
+
+# A text input in a real terminal: UTF-8 typed in one write (a wide
+# character and a combining accent among it) reaches the component as
+# text, the terminal's own cursor is shown and placed after it, and the
+# terminal comes back as it was.
+type_name() { sleep 1; printf 'Pik\xc3\xa1chu \xe5\xad\x97e\xcc\x81'; sleep 0.5; printf '\r'; sleep 1; }
+log="$dir/textinput.log"
+type_name | script -q -e -c \
+  "stty -g > $dir/before; ./target/debug/examples/textinput; echo EXIT=\$?; stty -g > $dir/after" \
+  "$log" > /dev/null || true
+if ! grep -a -q 'EXIT=0' "$log" || ! cmp -s "$dir/before" "$dir/after"; then
+  echo "FAIL textinput: exit or terminal mode not restored"; fails=$((fails + 1))
+elif ! has "$log" $'Pik\xc3\xa1chu \xe5\xad\x97e\xcc\x81' || ! has "$log" $'\e[?25h'; then
+  echo "FAIL textinput: the typed text or the shown cursor is missing"; fails=$((fails + 1))
+else
+  echo "ok   textinput: UTF-8 typed as text, the terminal's cursor shown, terminal restored"
 fi
 
 [[ "$fails" == 0 ]] || { echo "$fails pty check(s) failed"; exit 1; }

@@ -7,6 +7,8 @@ use crate::mouse::Mouse;
 use std::fmt;
 use std::io;
 
+mod route;
+
 /// A message for [`Model::update`](crate::Model::update): what the
 /// terminal reported, or one of the model's own messages.
 ///
