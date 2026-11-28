@@ -3,7 +3,7 @@
 All notable changes to this project are documented here. Every release is
 exactly 0.0.1 above the previous one.
 
-## [0.0.8] - Unreleased
+## [0.0.8] - 2026-11-28
 
 ### Added
 
