@@ -1,6 +1,6 @@
 [package]
 name = "petitcarnets"
-version = "0.0.6"
+version = "0.0.7"
 edition = "2024"
 rust-version = "1.85"
 description = "Terminal user interfaces in the Elm architecture (model, update, view), with no dependencies."
@@ -91,8 +91,36 @@ required-features = ["bubbles"]
 name = "chat"
 required-features = ["bubbles"]
 
+[[example]]
+name = "send-msg"
+required-features = ["bubbles"]
+
+[[example]]
+name = "realtime"
+required-features = ["bubbles"]
+
+[[example]]
+name = "prevent-quit"
+required-features = ["bubbles"]
+
+[[example]]
+name = "composable-views"
+required-features = ["bubbles"]
+
+[[example]]
+name = "split-editors"
+required-features = ["bubbles"]
+
+[[example]]
+name = "set-terminal-color"
+required-features = ["bubbles"]
+
 [[test]]
 name = "bubbles"
+required-features = ["bubbles"]
+
+[[test]]
+name = "bubbles_examples"
 required-features = ["bubbles"]
 
 # No dependencies, by design: the terminal is driven through a few libc

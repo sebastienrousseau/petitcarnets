@@ -8,6 +8,19 @@ use crate::{Cmd, set_clipboard};
 
 /// A place in the text: a line and a column in characters. Bubbles'
 /// `textarea.Position`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::bubbles::textarea;
+///
+/// use textarea::Position;
+///
+/// let mut area = textarea::Model::new();
+/// area.set_value("ab\ncd");
+/// area.select_all();
+/// let end = Position { row: 1, col: 2 };
+/// assert_eq!(area.selection(), Some((Position::default(), end)));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Position {
     /// The line, from 0.

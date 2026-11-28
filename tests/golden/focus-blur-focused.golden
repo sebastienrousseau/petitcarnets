@@ -1,0 +1,10 @@
+size 70x7, main screen
+cursor 0,5 hidden, style 0
+modes 1004 2004
+keyboard flags 1, modifyOtherKeys 2
+----------------------------------------------------------------------
+Hi. Focus report is currently enabled.
+
+This program is currently focused!
+
+To quit sooner press ctrl-c, or t to toggle focus reporting...

@@ -24,6 +24,31 @@ use std::time::Duration;
 const PAUSE_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// The process's terminal.
+///
+/// ```no_run
+/// use petitcarnets as tea;
+///
+/// struct Hello;
+///
+/// impl tea::Model for Hello {
+///     type Msg = ();
+///
+///     fn update(&mut self, msg: tea::Msg<()>) -> tea::Cmd<()> {
+///         match msg {
+///             tea::Msg::KeyPress(_) => tea::quit(),
+///             _ => tea::Cmd::none(),
+///         }
+///     }
+///
+///     fn view(&self) -> tea::View {
+///         "Hello! Press any key.".into()
+///     }
+/// }
+///
+/// // What `Program::run` does: draw on the process's terminal.
+/// let _model = tea::Program::new(Hello).run_with(tea::Terminal::new())?;
+/// # Ok::<(), tea::Error>(())
+/// ```
 pub struct Terminal {
     input: c_int,
     output: c_int,

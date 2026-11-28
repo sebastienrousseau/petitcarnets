@@ -37,10 +37,15 @@
 
 mod delegate;
 mod filter;
+mod filtering;
 mod fuzzy;
 mod items;
 mod keymap;
+mod show;
+mod size;
+mod status;
 mod style;
+mod traits;
 mod update;
 mod view;
 
@@ -48,44 +53,47 @@ pub use delegate::{DefaultDelegate, DefaultItem};
 pub use filter::{FilterFn, FilterState, Rank, default_filter, unsorted_filter};
 pub use keymap::KeyMap;
 pub use style::{DefaultItemStyles, Styles};
+pub use traits::{Item, ItemDelegate};
 
 use super::key::Binding;
 use super::{Flags, help, paginator, spinner, textinput};
-use crate::{Cmd, Msg as TeaMsg};
 use std::time::Duration;
 
-/// Something a list holds: Bubbles' `list.Item`.
-pub trait Item {
-    /// The text the filter matches against.
-    fn filter_value(&self) -> String;
-}
-
-/// Draws and updates a list's items: Bubbles' `list.ItemDelegate`. The
-/// list holds its delegate; it is cloned for [`ItemDelegate::update`],
-/// which gets the list to change.
-pub trait ItemDelegate<I>: Clone {
-    /// Item `index` (among the visible items), as text without a final
-    /// line break, [`ItemDelegate::height`] lines high.
-    fn render(&self, list: &Model<I, Self>, index: usize, item: &I) -> String;
-    /// The lines each item takes.
-    fn height(&self) -> usize;
-    /// The blank lines between items.
-    fn spacing(&self) -> usize;
-    /// Reacts to a message after the list has; nothing by default.
-    fn update(&self, _msg: &TeaMsg<Msg>, _list: &mut Model<I, Self>) -> Cmd<Msg> {
-        Cmd::none()
-    }
-    /// More bindings for the short help.
-    fn short_help(&self) -> Vec<Binding> {
-        Vec::new()
-    }
-    /// More bindings for the full help.
-    fn full_help(&self) -> Vec<Vec<Binding>> {
-        Vec::new()
-    }
-}
-
 /// A list's messages.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::bubbles::list;
+/// use tea::style::strip_ansi;
+/// # struct Fruit(&'static str);
+/// #
+/// # impl list::Item for Fruit {
+/// #     fn filter_value(&self) -> String {
+/// #         self.0.to_string()
+/// #     }
+/// # }
+/// #
+/// # impl list::DefaultItem for Fruit {
+/// #     fn title(&self) -> String {
+/// #         self.0.to_string()
+/// #     }
+/// #     fn description(&self) -> String {
+/// #         String::new()
+/// #     }
+/// # }
+/// #
+/// # fn fruits() -> list::Model<Fruit, list::DefaultDelegate> {
+/// #     let items = vec![Fruit("apple"), Fruit("banana"), Fruit("cherry")];
+/// #     list::Model::new(items, list::DefaultDelegate::new(), 30, 14)
+/// # }
+///
+/// let mut l = fruits();
+/// let _later = l.new_status_message("Saved");
+/// assert!(strip_ansi(&l.view()).contains("Saved"));
+/// // The first status message's time is up.
+/// let _ = l.update(&tea::Msg::App(list::Msg::StatusTimeout(1)));
+/// assert!(!strip_ansi(&l.view()).contains("Saved"));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Msg {
     /// The spinner's tick.
@@ -122,6 +130,42 @@ const DISABLE_QUIT_KEYBINDINGS: u16 = 1 << 6;
 const SHOW_SPINNER: u16 = 1 << 7;
 
 /// A list: Bubbles' `list.Model`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::bubbles::list;
+/// use tea::style::strip_ansi;
+/// # struct Fruit(&'static str);
+/// #
+/// # impl list::Item for Fruit {
+/// #     fn filter_value(&self) -> String {
+/// #         self.0.to_string()
+/// #     }
+/// # }
+/// #
+/// # impl list::DefaultItem for Fruit {
+/// #     fn title(&self) -> String {
+/// #         self.0.to_string()
+/// #     }
+/// #     fn description(&self) -> String {
+/// #         String::new()
+/// #     }
+/// # }
+/// #
+/// # fn fruits() -> list::Model<Fruit, list::DefaultDelegate> {
+/// #     let items = vec![Fruit("apple"), Fruit("banana"), Fruit("cherry")];
+/// #     list::Model::new(items, list::DefaultDelegate::new(), 30, 14)
+/// # }
+///
+/// let key = |c| tea::Msg::KeyPress(tea::Key::char(c));
+/// let mut l = fruits();
+/// for c in ['/', 'c', 'h'] {
+///     let _ = l.update(&key(c));
+/// }
+/// let _ = l.update(&tea::Msg::KeyPress(tea::Key::new(tea::KeyCode::Enter)));
+/// assert!(l.is_filtered());
+/// assert_eq!(l.selected_item().map(|f| f.0), Some("cherry"));
+/// ```
 #[derive(Debug, Clone)]
 pub struct Model<I, D> {
     /// The title.
@@ -164,6 +208,39 @@ pub struct Model<I, D> {
 impl<I: Item, D: ItemDelegate<I>> Model<I, D> {
     /// A list of `items` drawn by `delegate`, `width` by `height`:
     /// `list.New`.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::list;
+    /// use tea::style::strip_ansi;
+    /// # struct Fruit(&'static str);
+    /// #
+    /// # impl list::Item for Fruit {
+    /// #     fn filter_value(&self) -> String {
+    /// #         self.0.to_string()
+    /// #     }
+    /// # }
+    /// #
+    /// # impl list::DefaultItem for Fruit {
+    /// #     fn title(&self) -> String {
+    /// #         self.0.to_string()
+    /// #     }
+    /// #     fn description(&self) -> String {
+    /// #         String::new()
+    /// #     }
+    /// # }
+    /// #
+    /// # fn fruits() -> list::Model<Fruit, list::DefaultDelegate> {
+    /// #     let items = vec![Fruit("apple"), Fruit("banana"), Fruit("cherry")];
+    /// #     list::Model::new(items, list::DefaultDelegate::new(), 30, 14)
+    /// # }
+    ///
+    /// let l = fruits();
+    /// assert_eq!(l.title, "List");
+    /// assert_eq!(l.items().len(), 3);
+    /// assert_eq!((l.width(), l.height()), (30, 14));
+    /// assert!(strip_ansi(&l.view()).contains("3 items"));
+    /// ```
     #[must_use]
     pub fn new(items: Vec<I>, delegate: D, width: usize, height: usize) -> Self {
         let styles = Styles::new(true);
@@ -212,200 +289,6 @@ impl<I: Item, D: ItemDelegate<I>> Model<I, D> {
         m.update_pagination();
         m.update_keybindings();
         m
-    }
-
-    /// Turns filtering on or off; off drops any filter.
-    pub fn set_filtering_enabled(&mut self, on: bool) {
-        self.flags.set(FILTERING_ENABLED, on);
-        if !on {
-            self.reset_filtering();
-        }
-        self.update_keybindings();
-    }
-
-    /// Whether filtering is on.
-    #[must_use]
-    pub const fn filtering_enabled(&self) -> bool {
-        self.flags.get(FILTERING_ENABLED)
-    }
-
-    /// Shows or hides the title.
-    pub fn set_show_title(&mut self, on: bool) {
-        self.flags.set(SHOW_TITLE, on);
-        self.update_pagination();
-    }
-
-    /// Whether the title shows.
-    #[must_use]
-    pub const fn show_title(&self) -> bool {
-        self.flags.get(SHOW_TITLE)
-    }
-
-    /// Shows or hides the filter input.
-    pub fn set_show_filter(&mut self, on: bool) {
-        self.flags.set(SHOW_FILTER, on);
-        self.update_pagination();
-    }
-
-    /// Whether the filter input shows.
-    #[must_use]
-    pub const fn show_filter(&self) -> bool {
-        self.flags.get(SHOW_FILTER)
-    }
-
-    /// Shows or hides the status bar.
-    pub fn set_show_status_bar(&mut self, on: bool) {
-        self.flags.set(SHOW_STATUS_BAR, on);
-        self.update_pagination();
-    }
-
-    /// Whether the status bar shows.
-    #[must_use]
-    pub const fn show_status_bar(&self) -> bool {
-        self.flags.get(SHOW_STATUS_BAR)
-    }
-
-    /// The status bar's name for one item and for several.
-    pub fn set_status_bar_item_name(&mut self, singular: &str, plural: &str) {
-        singular.clone_into(&mut self.item_name_singular);
-        plural.clone_into(&mut self.item_name_plural);
-    }
-
-    /// The status bar's names for items.
-    #[must_use]
-    pub fn status_bar_item_name(&self) -> (&str, &str) {
-        (&self.item_name_singular, &self.item_name_plural)
-    }
-
-    /// Shows or hides the pagination.
-    pub fn set_show_pagination(&mut self, on: bool) {
-        self.flags.set(SHOW_PAGINATION, on);
-        self.update_pagination();
-    }
-
-    /// Whether the pagination shows.
-    #[must_use]
-    pub const fn show_pagination(&self) -> bool {
-        self.flags.get(SHOW_PAGINATION)
-    }
-
-    /// Shows or hides the help.
-    pub fn set_show_help(&mut self, on: bool) {
-        self.flags.set(SHOW_HELP, on);
-        self.update_pagination();
-    }
-
-    /// Whether the help shows.
-    #[must_use]
-    pub const fn show_help(&self) -> bool {
-        self.flags.get(SHOW_HELP)
-    }
-
-    /// Drops the filter.
-    pub fn reset_filter(&mut self) {
-        self.reset_filtering();
-    }
-
-    /// Whether and how it is filtered.
-    #[must_use]
-    pub const fn filter_state(&self) -> FilterState {
-        self.filter_state
-    }
-
-    /// The filter.
-    #[must_use]
-    pub fn filter_value(&self) -> String {
-        self.filter_input.value()
-    }
-
-    /// Whether the filter is being typed.
-    #[must_use]
-    pub fn setting_filter(&self) -> bool {
-        self.filter_state == FilterState::Filtering
-    }
-
-    /// Whether a filter is set.
-    #[must_use]
-    pub fn is_filtered(&self) -> bool {
-        self.filter_state == FilterState::FilterApplied
-    }
-
-    /// The width.
-    #[must_use]
-    pub const fn width(&self) -> usize {
-        self.width
-    }
-
-    /// The height.
-    #[must_use]
-    pub const fn height(&self) -> usize {
-        self.height
-    }
-
-    /// Sets the width.
-    pub fn set_width(&mut self, columns: usize) {
-        self.set_size(columns, self.height);
-    }
-
-    /// Sets the height.
-    pub fn set_height(&mut self, rows: usize) {
-        self.set_size(self.width, rows);
-    }
-
-    /// Sets the size.
-    pub fn set_size(&mut self, width: usize, height: usize) {
-        let prompt = crate::style::width(&self.styles.title.render(&self.filter_input.prompt));
-        self.width = width;
-        self.height = height;
-        self.help.set_width(width);
-        let spinner = crate::style::width(&self.spinner.view());
-        self.filter_input
-            .set_width(width.saturating_sub(prompt + spinner));
-        self.update_pagination();
-        self.update_keybindings();
-    }
-
-    /// Replaces the spinner's frames.
-    pub const fn set_spinner(&mut self, spinner: spinner::Spinner) {
-        self.spinner.spinner = spinner;
-    }
-
-    /// Starts the spinner if it is stopped, else stops it.
-    pub fn toggle_spinner(&mut self) -> Cmd<Msg> {
-        if self.flags.get(SHOW_SPINNER) {
-            self.stop_spinner();
-            Cmd::none()
-        } else {
-            self.start_spinner()
-        }
-    }
-
-    /// Shows the spinner; the command starts it.
-    pub fn start_spinner(&mut self) -> Cmd<Msg> {
-        self.flags.set(SHOW_SPINNER, true);
-        self.spinner.tick().map(Msg::Spinner)
-    }
-
-    /// Hides the spinner.
-    pub const fn stop_spinner(&mut self) {
-        self.flags.set(SHOW_SPINNER, false);
-    }
-
-    /// Turns the quit keys off.
-    pub const fn disable_quit_keybindings(&mut self) {
-        self.flags.set(DISABLE_QUIT_KEYBINDINGS, true);
-        self.key_map.quit.set_enabled(false);
-        self.key_map.force_quit.set_enabled(false);
-    }
-
-    /// Shows `message` by the title for [`Model::status_message_lifetime`].
-    pub fn new_status_message(&mut self, message: &str) -> Cmd<Msg> {
-        message.clone_into(&mut self.status_message);
-        self.status_tag += 1;
-        let tag = self.status_tag;
-        crate::tick(self.status_message_lifetime, move |_| {
-            Msg::StatusTimeout(tag)
-        })
     }
 }
 

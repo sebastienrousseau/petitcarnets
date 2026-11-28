@@ -4,6 +4,41 @@ use crate::bubbles::textinput;
 use crate::style::{Border, Color, Style};
 
 /// The list's styles: Bubbles' `list.Styles`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::bubbles::list;
+/// use tea::style::strip_ansi;
+/// # struct Fruit(&'static str);
+/// #
+/// # impl list::Item for Fruit {
+/// #     fn filter_value(&self) -> String {
+/// #         self.0.to_string()
+/// #     }
+/// # }
+/// #
+/// # impl list::DefaultItem for Fruit {
+/// #     fn title(&self) -> String {
+/// #         self.0.to_string()
+/// #     }
+/// #     fn description(&self) -> String {
+/// #         String::new()
+/// #     }
+/// # }
+/// #
+/// # fn fruits() -> list::Model<Fruit, list::DefaultDelegate> {
+/// #     let items = vec![Fruit("apple"), Fruit("banana"), Fruit("cherry")];
+/// #     list::Model::new(items, list::DefaultDelegate::new(), 30, 14)
+/// # }
+///
+/// let mut l = fruits();
+/// assert!(
+///     l.view().starts_with("  \x1b[48;5;62m "),
+///     "the title on a purple bar"
+/// );
+/// l.styles.title = tea::style::Style::new();
+/// assert!(l.view().starts_with("  List "));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Styles {
     /// The title bar.
@@ -54,6 +89,17 @@ pub(super) const fn pick(is_dark: bool, dark: u32, light: u32) -> Color {
 impl Styles {
     /// Bubbles' default styles for a dark or light background:
     /// `list.DefaultStyles`.
+    ///
+    /// ```
+    /// use petitcarnets::bubbles::list::Styles;
+    ///
+    /// let (dark, light) = (Styles::new(true), Styles::new(false));
+    /// assert_eq!(
+    ///     dark.status_bar.paint("3 items"),
+    ///     "\x1b[38;2;119;119;119m3 items\x1b[0m"
+    /// );
+    /// assert_ne!(dark.status_bar, light.status_bar);
+    /// ```
     #[must_use]
     pub fn new(is_dark: bool) -> Self {
         let very_subdued = pick(is_dark, 0x3C_3C3C, 0xDD_DADA);
@@ -91,6 +137,39 @@ impl Styles {
 
 /// The styles of the default delegate's items: Bubbles'
 /// `list.DefaultItemStyles`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::bubbles::list;
+/// use tea::style::strip_ansi;
+/// # struct Fruit(&'static str);
+/// #
+/// # impl list::Item for Fruit {
+/// #     fn filter_value(&self) -> String {
+/// #         self.0.to_string()
+/// #     }
+/// # }
+/// #
+/// # impl list::DefaultItem for Fruit {
+/// #     fn title(&self) -> String {
+/// #         self.0.to_string()
+/// #     }
+/// #     fn description(&self) -> String {
+/// #         String::new()
+/// #     }
+/// # }
+/// #
+/// # fn fruits() -> list::Model<Fruit, list::DefaultDelegate> {
+/// #     let items = vec![Fruit("apple"), Fruit("banana"), Fruit("cherry")];
+/// #     list::Model::new(items, list::DefaultDelegate::new(), 30, 14)
+/// # }
+///
+/// let mut l = fruits();
+/// let mut d = list::DefaultDelegate::new();
+/// d.styles.selected_title = tea::style::Style::new().bold();
+/// l.set_delegate(d);
+/// assert!(l.view().contains("\x1b[1mapple\x1b[0m"));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DefaultItemStyles {
     /// An item's title.
@@ -111,6 +190,23 @@ pub struct DefaultItemStyles {
 
 impl DefaultItemStyles {
     /// Bubbles' default item styles: `list.NewDefaultItemStyles`.
+    ///
+    /// ```
+    /// use petitcarnets::bubbles::list::DefaultItemStyles;
+    ///
+    /// let (dark, light) = (DefaultItemStyles::new(true), DefaultItemStyles::new(false));
+    /// assert!(
+    ///     dark.selected_title
+    ///         .render("x")
+    ///         .starts_with("\x1b[38;2;173;88;180m│")
+    /// );
+    /// assert!(
+    ///     light
+    ///         .selected_title
+    ///         .render("x")
+    ///         .starts_with("\x1b[38;2;247;147;255m│")
+    /// );
+    /// ```
     #[must_use]
     pub fn new(is_dark: bool) -> Self {
         let normal_title = Style::new()

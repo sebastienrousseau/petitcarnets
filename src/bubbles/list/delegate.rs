@@ -5,16 +5,155 @@ use super::{DefaultItemStyles, FilterState, Item, ItemDelegate, Model};
 use crate::style::{Style, truncate_with};
 
 /// An item with a title and a description: Bubbles' `list.DefaultItem`.
+///
+/// ```
+/// use petitcarnets::bubbles::list::{self, DefaultDelegate, DefaultItem, Item};
+/// use petitcarnets::style::strip_ansi;
+///
+/// struct Task(&'static str, &'static str);
+///
+/// impl Item for Task {
+///     fn filter_value(&self) -> String {
+///         self.0.to_string()
+///     }
+/// }
+///
+/// impl DefaultItem for Task {
+///     fn title(&self) -> String {
+///         self.0.to_string()
+///     }
+///     fn description(&self) -> String {
+///         self.1.to_string()
+///     }
+/// }
+///
+/// let l = list::Model::new(
+///     vec![Task("Docs", "Write them")],
+///     DefaultDelegate::new(),
+///     30,
+///     10,
+/// );
+/// let view = strip_ansi(&l.view());
+/// let lines: Vec<&str> = view.lines().map(str::trim_end).collect();
+/// assert_eq!(lines[4..6], ["│ Docs", "│ Write them"]);
+/// ```
 pub trait DefaultItem: Item {
     /// The title.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::list;
+    /// use tea::style::strip_ansi;
+    /// # struct Fruit(&'static str);
+    /// #
+    /// # impl list::Item for Fruit {
+    /// #     fn filter_value(&self) -> String {
+    /// #         self.0.to_string()
+    /// #     }
+    /// # }
+    /// #
+    /// # impl list::DefaultItem for Fruit {
+    /// #     fn title(&self) -> String {
+    /// #         self.0.to_string()
+    /// #     }
+    /// #     fn description(&self) -> String {
+    /// #         String::new()
+    /// #     }
+    /// # }
+    /// #
+    /// # fn fruits() -> list::Model<Fruit, list::DefaultDelegate> {
+    /// #     let items = vec![Fruit("apple"), Fruit("banana"), Fruit("cherry")];
+    /// #     list::Model::new(items, list::DefaultDelegate::new(), 30, 14)
+    /// # }
+    ///
+    /// use tea::bubbles::list::DefaultItem;
+    ///
+    /// let l = fruits();
+    /// assert_eq!(l.items()[0].title(), "apple");
+    /// assert!(
+    ///     strip_ansi(&l.view()).contains("│ apple "),
+    ///     "drawn by the default delegate"
+    /// );
+    /// ```
     fn title(&self) -> String;
     /// The description.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::list;
+    /// use tea::style::strip_ansi;
+    /// # struct Fruit(&'static str);
+    /// #
+    /// # impl list::Item for Fruit {
+    /// #     fn filter_value(&self) -> String {
+    /// #         self.0.to_string()
+    /// #     }
+    /// # }
+    /// #
+    /// # impl list::DefaultItem for Fruit {
+    /// #     fn title(&self) -> String {
+    /// #         self.0.to_string()
+    /// #     }
+    /// #     fn description(&self) -> String {
+    /// #         String::new()
+    /// #     }
+    /// # }
+    /// #
+    /// # fn fruits() -> list::Model<Fruit, list::DefaultDelegate> {
+    /// #     let items = vec![Fruit("apple"), Fruit("banana"), Fruit("cherry")];
+    /// #     list::Model::new(items, list::DefaultDelegate::new(), 30, 14)
+    /// # }
+    ///
+    /// use tea::bubbles::list::DefaultItem;
+    ///
+    /// let l = fruits();
+    /// assert_eq!(
+    ///     l.items()[0].description(),
+    ///     "",
+    ///     "drawn on the line under the title"
+    /// );
+    /// ```
     fn description(&self) -> String;
 }
 
 /// Draws [`DefaultItem`]s: Bubbles' `list.DefaultDelegate`. Go's
 /// update and help functions are not ported; write a delegate of your
 /// own for those.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::bubbles::list;
+/// use tea::style::strip_ansi;
+/// # struct Fruit(&'static str);
+/// #
+/// # impl list::Item for Fruit {
+/// #     fn filter_value(&self) -> String {
+/// #         self.0.to_string()
+/// #     }
+/// # }
+/// #
+/// # impl list::DefaultItem for Fruit {
+/// #     fn title(&self) -> String {
+/// #         self.0.to_string()
+/// #     }
+/// #     fn description(&self) -> String {
+/// #         String::new()
+/// #     }
+/// # }
+/// #
+/// # fn fruits() -> list::Model<Fruit, list::DefaultDelegate> {
+/// #     let items = vec![Fruit("apple"), Fruit("banana"), Fruit("cherry")];
+/// #     list::Model::new(items, list::DefaultDelegate::new(), 30, 14)
+/// # }
+///
+/// let mut l = fruits();
+/// let mut d = list::DefaultDelegate::new();
+/// d.show_description = false;
+/// l.set_delegate(d);
+/// let view = strip_ansi(&l.view());
+/// let lines: Vec<&str> = view.lines().map(str::trim_end).collect();
+/// assert_eq!(lines[4..9], ["│ apple", "", "  banana", "", "  cherry"]);
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DefaultDelegate {
     /// Whether to show descriptions under the titles.
@@ -33,6 +172,40 @@ impl Default for DefaultDelegate {
 
 impl DefaultDelegate {
     /// Two lines an item, a blank line between: `list.NewDefaultDelegate`.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::list;
+    /// use tea::style::strip_ansi;
+    /// # struct Fruit(&'static str);
+    /// #
+    /// # impl list::Item for Fruit {
+    /// #     fn filter_value(&self) -> String {
+    /// #         self.0.to_string()
+    /// #     }
+    /// # }
+    /// #
+    /// # impl list::DefaultItem for Fruit {
+    /// #     fn title(&self) -> String {
+    /// #         self.0.to_string()
+    /// #     }
+    /// #     fn description(&self) -> String {
+    /// #         String::new()
+    /// #     }
+    /// # }
+    /// #
+    /// # fn fruits() -> list::Model<Fruit, list::DefaultDelegate> {
+    /// #     let items = vec![Fruit("apple"), Fruit("banana"), Fruit("cherry")];
+    /// #     list::Model::new(items, list::DefaultDelegate::new(), 30, 14)
+    /// # }
+    ///
+    /// use tea::bubbles::list::ItemDelegate;
+    ///
+    /// let d = list::DefaultDelegate::new();
+    /// assert!(d.show_description);
+    /// assert_eq!(ItemDelegate::<Fruit>::height(&d), 2);
+    /// assert_eq!(ItemDelegate::<Fruit>::spacing(&d), 1);
+    /// ```
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -44,11 +217,82 @@ impl DefaultDelegate {
     }
 
     /// Lines an item takes with its description.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::list;
+    /// use tea::style::strip_ansi;
+    /// # struct Fruit(&'static str);
+    /// #
+    /// # impl list::Item for Fruit {
+    /// #     fn filter_value(&self) -> String {
+    /// #         self.0.to_string()
+    /// #     }
+    /// # }
+    /// #
+    /// # impl list::DefaultItem for Fruit {
+    /// #     fn title(&self) -> String {
+    /// #         self.0.to_string()
+    /// #     }
+    /// #     fn description(&self) -> String {
+    /// #         String::new()
+    /// #     }
+    /// # }
+    /// #
+    /// # fn fruits() -> list::Model<Fruit, list::DefaultDelegate> {
+    /// #     let items = vec![Fruit("apple"), Fruit("banana"), Fruit("cherry")];
+    /// #     list::Model::new(items, list::DefaultDelegate::new(), 30, 14)
+    /// # }
+    ///
+    /// use tea::bubbles::list::ItemDelegate;
+    ///
+    /// let mut d = list::DefaultDelegate::new();
+    /// d.set_height(3);
+    /// assert_eq!(ItemDelegate::<Fruit>::height(&d), 3);
+    /// d.show_description = false;
+    /// assert_eq!(ItemDelegate::<Fruit>::height(&d), 1, "only the title");
+    /// ```
     pub const fn set_height(&mut self, lines: usize) {
         self.height = lines;
     }
 
     /// Blank lines between items.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::list;
+    /// use tea::style::strip_ansi;
+    /// # struct Fruit(&'static str);
+    /// #
+    /// # impl list::Item for Fruit {
+    /// #     fn filter_value(&self) -> String {
+    /// #         self.0.to_string()
+    /// #     }
+    /// # }
+    /// #
+    /// # impl list::DefaultItem for Fruit {
+    /// #     fn title(&self) -> String {
+    /// #         self.0.to_string()
+    /// #     }
+    /// #     fn description(&self) -> String {
+    /// #         String::new()
+    /// #     }
+    /// # }
+    /// #
+    /// # fn fruits() -> list::Model<Fruit, list::DefaultDelegate> {
+    /// #     let items = vec![Fruit("apple"), Fruit("banana"), Fruit("cherry")];
+    /// #     list::Model::new(items, list::DefaultDelegate::new(), 30, 14)
+    /// # }
+    ///
+    /// let mut l = fruits();
+    /// let mut d = list::DefaultDelegate::new();
+    /// d.show_description = false;
+    /// d.set_spacing(0);
+    /// l.set_delegate(d);
+    /// let view = strip_ansi(&l.view());
+    /// let lines: Vec<&str> = view.lines().map(str::trim_end).collect();
+    /// assert_eq!(lines[4..7], ["│ apple", "  banana", "  cherry"]);
+    /// ```
     pub const fn set_spacing(&mut self, lines: usize) {
         self.spacing = lines;
     }

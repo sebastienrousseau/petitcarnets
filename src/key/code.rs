@@ -8,6 +8,16 @@ use crate::unicode::REPLACEMENT;
 /// Unicode code point; here they are variants. Enter, Tab, Backspace,
 /// Escape and Space are named, never [`KeyCode::Char`], as in Go where
 /// they are the runes `'\r'`, `'\t'`, DEL, ESC and `' '`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::{Key, KeyCode};
+///
+/// assert_eq!(Key::char('a').code, KeyCode::Char('a'));
+/// assert_eq!(Key::char(' ').code, KeyCode::Space);
+/// assert!(Key::new(KeyCode::F(5)) == "f5");
+/// assert!(Key::new(KeyCode::PgDown) == "pgdown");
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum KeyCode {

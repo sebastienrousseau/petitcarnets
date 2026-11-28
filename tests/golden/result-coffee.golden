@@ -1,0 +1,12 @@
+size 60x8, main screen
+cursor 2,3 hidden, style 0
+modes 2004
+keyboard flags 1, modifyOtherKeys 2
+------------------------------------------------------------
+What kind of Bubble Tea would you like to order?
+
+( ) Taro
+(•) Coffee
+( ) Lychee
+
+(press q to quit)

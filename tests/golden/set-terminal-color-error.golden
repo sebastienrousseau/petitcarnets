@@ -1,0 +1,11 @@
+size 60x10, main screen
+cursor 52,5 hidden, style 0
+modes 2004
+keyboard flags 1, modifyOtherKeys 2
+------------------------------------------------------------
+Enter a color in hex format:
+
+> #zz0
+
+Error: color: #zz0 is not a hex-color: strconv.ParseUint: pa
+Press q to quit, and enter to submit, esc to go back

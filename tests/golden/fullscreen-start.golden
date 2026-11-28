@@ -1,0 +1,8 @@
+size 60x5, alternate screen
+cursor 47,2 hidden, style 0
+modes 1049 2004
+keyboard flags 1, modifyOtherKeys 2
+------------------------------------------------------------
+
+
+     Hi. This program will exit in 5 seconds...

@@ -1,0 +1,7 @@
+\u{1b}[?2004h\u{1b}[>4;2m\u{1b}[>1u  Count: 0\r\n
+  up/down or +/- to change, q to quit\r\n
+  Count: 1\r\n
+  Count: 2\r\n
+  Count: 1\r\n
+  Count: 0\r\n
+\u{1b}[>4m\u{1b}[<u\u{1b}[?2004l

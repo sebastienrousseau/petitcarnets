@@ -34,6 +34,12 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
       - name: Test
         run: cargo test --all-targets
+      # Every example runs here, headless: its model in a golden test
+      # (TestProgram on a virtual clock). The two that hand the terminal
+      # to another process (exec, suspend) run in the pty job instead;
+      # `every_example_runs_in_a_test` fails if an example has neither.
+      - name: Examples (each run headless in its golden test)
+        run: cargo test --test golden --test bubbles --test examples --test bubbles_examples --test accessible
       # The components are a default feature; the crate must build and
       # pass without them too.
       - name: Clippy and test without the components

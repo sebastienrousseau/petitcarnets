@@ -20,7 +20,7 @@ use crate::exec::{Event, Executor, Item};
 use crate::msg::{Error, Msg};
 use crate::renderer::Renderer;
 use crate::style::{WidthMethod, set_width_method};
-use run::{Loop, Settings};
+use run::{Frames, Loop, Settings};
 pub(crate) use session::Session;
 use std::fmt;
 use std::sync::mpsc::{self, Receiver};
@@ -67,6 +67,7 @@ pub struct Program<M: Model> {
     environment: Option<Environment>,
     profile: Option<ColorProfile>,
     suspend_key: bool,
+    accessible: Option<bool>,
 }
 
 impl<M: Model> fmt::Debug for Program<M> {
@@ -144,6 +145,7 @@ impl<M: Model> Program<M> {
             environment: None,
             profile: None,
             suspend_key: true,
+            accessible: None,
         }
     }
 
@@ -155,15 +157,27 @@ impl<M: Model> Program<M> {
     /// ```
     /// use petitcarnets as tea;
     ///
-    /// # struct M;
-    /// # impl tea::Model for M {
-    /// #     type Msg = ();
-    /// #     fn update(&mut self, _: tea::Msg<()>) -> tea::Cmd<()> { tea::Cmd::none() }
-    /// #     fn view(&self) -> tea::View { tea::View::default() }
-    /// # }
+    /// /// Keeps the colour profile the program detected.
+    /// struct M(Option<tea::ColorProfile>);
+    ///
+    /// impl tea::Model for M {
+    ///     type Msg = ();
+    ///     fn update(&mut self, msg: tea::Msg<()>) -> tea::Cmd<()> {
+    ///         if let tea::Msg::ColorProfile(p) = msg {
+    ///             self.0 = Some(p);
+    ///         }
+    ///         tea::Cmd::none()
+    ///     }
+    ///     fn view(&self) -> tea::View {
+    ///         tea::View::default()
+    ///     }
+    /// }
+    ///
     /// let client = [("TERM", "xterm-256color"), ("NO_COLOR", "1")];
-    /// let program = tea::Program::new(M).with_environment(client.into_iter().collect());
-    /// # let _ = program;
+    /// let program = tea::Program::new(M(None)).with_environment(client.into_iter().collect());
+    /// let terminal = tea::testing::TestTerminal::new(20, 2).terminal();
+    /// let test = tea::testing::TestProgram::with_terminal(program, terminal);
+    /// assert_eq!(test.model().0, Some(tea::ColorProfile::Ascii), "NO_COLOR: no colours");
     /// ```
     #[must_use]
     pub fn with_environment(mut self, environment: Environment) -> Self {
@@ -173,7 +187,7 @@ impl<M: Model> Program<M> {
 
     /// Uses `profile` instead of detecting one: Bubble Tea's
     /// `tea.WithColorProfile`. It is kept even if the terminal later says
-    /// it shows 24-bit colour (unlike Bubble Tea, its issue #1773).
+    /// it shows 24-bit colour (unlike Bubble Tea, its pull request #1773).
     #[must_use]
     pub const fn with_color_profile(mut self, profile: ColorProfile) -> Self {
         self.profile = Some(profile);
@@ -182,12 +196,66 @@ impl<M: Model> Program<M> {
 
     /// Delivers Ctrl-Z to the model as the key `"ctrl+z"` instead of
     /// suspending the program. By default, Ctrl-Z suspends, as it does in
-    /// a shell (Bubble Tea leaves it to each program, its issue #500);
+    /// a shell (Bubble Tea leaves it to each program, its pull request #500);
     /// [`suspend`](crate::suspend) still suspends, and so does a
     /// `SIGTSTP` sent from outside.
     #[must_use]
     pub const fn without_suspend(mut self) -> Self {
         self.suspend_key = false;
+        self
+    }
+
+    /// Prints frames as plain lines (`on`), for screen readers and
+    /// braille displays, or never (`!on`): huh's `WithAccessible`, for
+    /// Bubble Tea's issue #780. Without this call, a program in a real
+    /// terminal prints lines when the environment's `ACCESSIBLE` is set
+    /// and not empty, the variable huh tells programs to read.
+    ///
+    /// Each frame's lines that differ from the line in the same place
+    /// in the frame before are printed once, in order, below what is
+    /// already there; blank lines are left out. Nothing is redrawn, the
+    /// cursor is never moved or hidden, the alternate screen is not
+    /// used, frames are not wrapped in synchronized output, autowrap
+    /// stays on and lines are not cut to the window's width.
+    /// [`println`](crate::println) prints its lines in the same way.
+    /// Colours and styles are left out unless the program sets a
+    /// profile with [`Program::with_color_profile`]. Input works as it
+    /// always does.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::testing::{TestProgram, TestTerminal};
+    ///
+    /// struct Count(u32);
+    ///
+    /// impl tea::Model for Count {
+    ///     type Msg = ();
+    ///     fn update(&mut self, msg: tea::Msg<()>) -> tea::Cmd<()> {
+    ///         match msg {
+    ///             tea::Msg::KeyPress(k) if k == "q" => tea::quit(),
+    ///             tea::Msg::KeyPress(_) => {
+    ///                 self.0 += 1;
+    ///                 tea::Cmd::none()
+    ///             }
+    ///             _ => tea::Cmd::none(),
+    ///         }
+    ///     }
+    ///     fn view(&self) -> tea::View {
+    ///         tea::View::new(format!("Count: {}\n\nq: quit", self.0)).with_alt_screen(true)
+    ///     }
+    /// }
+    ///
+    /// let program = tea::Program::new(Count(0)).with_accessible(true);
+    /// let mut test = TestProgram::with_terminal(program, TestTerminal::new(20, 5));
+    /// test.type_text("+q");
+    /// let out = String::from_utf8_lossy(test.final_output()).into_owned();
+    /// // The changed line is printed again below, never redrawn in place.
+    /// assert!(out.contains("Count: 0\r\nq: quit\r\nCount: 1\r\n"));
+    /// assert!(!out.contains("\x1b[?1049h"), "no alternate screen");
+    /// ```
+    #[must_use]
+    pub const fn with_accessible(mut self, on: bool) -> Self {
+        self.accessible = Some(on);
         self
     }
 
@@ -261,6 +329,7 @@ impl<M: Model> Program<M> {
             environment,
             profile,
             suspend_key,
+            accessible,
         } = self;
         let keys = events.clone();
         backend.start_input(Box::new(move |input| {
@@ -269,16 +338,22 @@ impl<M: Model> Program<M> {
         let size = backend.size()?;
         let environment = environment.unwrap_or_else(Environment::current);
         let terminal = backend.is_terminal();
+        let accessible = accessible.unwrap_or_else(|| terminal && wants_accessible(&environment));
         let settings = Settings {
             interval: Duration::from_secs(1) / fps,
-            profile: profile.unwrap_or_else(|| detect(terminal, &environment)),
-            forced: profile.is_some(),
+            profile: profile.unwrap_or_else(|| detect(terminal, accessible, &environment)),
+            forced: profile.is_some() || accessible,
             suspend_key,
             terminal,
+            frames: if accessible {
+                Frames::Lines
+            } else {
+                Frames::Cells
+            },
         };
         let colors = settings.profile;
         let mut state = Loop::new(Executor::new(events), Renderer::new(size), settings, clock);
-        state.query(backend, should_query(&environment))?;
+        state.query(backend, !accessible && should_query(&environment))?;
         state.exec.push(Item::Msg(Msg::ColorProfile(colors)));
         state.exec.push(Item::Msg(Msg::WindowSize(size)));
         let now = state.now();
@@ -288,13 +363,23 @@ impl<M: Model> Program<M> {
 }
 
 /// The colour profile of a real terminal (`terminal`) in `environment`;
-/// anything else shows every colour as it is.
-fn detect(terminal: bool, environment: &Environment) -> ColorProfile {
-    if terminal {
+/// anything else shows every colour as it is. Accessible output has
+/// none: plain text, unless the program sets a profile.
+fn detect(terminal: bool, accessible: bool, environment: &Environment) -> ColorProfile {
+    if accessible {
+        ColorProfile::NoTty
+    } else if terminal {
         ColorProfile::detect(true, environment)
     } else {
         ColorProfile::TrueColor
     }
+}
+
+/// Whether `environment` asks for accessible output: `ACCESSIBLE` set
+/// and not empty, the variable huh's documentation tells programs to
+/// read (`os.Getenv("ACCESSIBLE") != ""`).
+fn wants_accessible(environment: &Environment) -> bool {
+    !environment.var("ACCESSIBLE").is_empty()
 }
 
 /// Whether to ask the terminal about synchronized output and grapheme

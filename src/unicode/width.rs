@@ -16,6 +16,20 @@ mod segment;
 /// A program measures with [`WidthMethod::WcWidth`] until the terminal
 /// reports that it supports grapheme clusters (mode 2027), as Bubble Tea
 /// does; [`crate::style::width`] follows the running program's choice.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::style::WidthMethod;
+///
+/// // A thumbs up with a skin tone: two code points, one grapheme.
+/// let thumb = "\u{1f44d}\u{1f3fd}";
+/// assert_eq!(WidthMethod::WcWidth.string_width(thumb), 4);
+/// assert_eq!(WidthMethod::GraphemeWidth.string_width(thumb), 2);
+/// assert_eq!(
+///     WidthMethod::GraphemeWidth.string_width("\x1b[1mok\x1b[0m"),
+///     2
+/// );
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum WidthMethod {
     /// Each code point on its own, as `wcwidth` does: Go's `ansi.WcWidth`.

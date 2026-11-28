@@ -30,7 +30,9 @@ test harness, `TestProgram`: Bubble Tea's teatest, on a virtual clock.
 From v0.0.6 it has the components of [Bubbles](https://github.com/charmbracelet/bubbles)
 v2 (text input, text area, list, table, viewport, spinner, progress bar,
 help and the rest), with their default key bindings, and `Cmd::map` to
-compose them. Expect the API to grow.
+compose them. From v0.0.7 it has an accessible output mode for screen
+readers, 39 of Bubble Tea's 64 examples ported, and guides. Expect the
+API to grow.
 
 ## Why
 
@@ -86,13 +88,22 @@ fn main() -> Result<(), tea::Error> {
 ```
 
 Run the examples with `cargo run --example counter` (also `picker`,
-`spinner`, `lifecycle`, `mouse`, `keyboard-enhancements`, and, named
-after Bubble Tea's, `altscreen-toggle`, `cursor-style`,
-`set-window-title`, `package-manager`, `exec`, `suspend` and
-`query-term`).
+`spinner` and `lifecycle`, and Bubble Tea's own under their names:
+`simple`, `views`, `http`, `split-editors` and the rest).
+[docs/examples.md](docs/examples.md) lists every one of Bubble Tea's
+examples, ported or not yet; each port runs in CI.
+
+**Accessible output.** For screen readers and braille displays, a
+program can print its frames as plain lines, with no redraws, no cursor
+movement, no alternate screen and no colour (Bubble Tea's
+[issue #780](https://github.com/charmbracelet/bubbletea/issues/780)):
+`tea::Program::new(m).with_accessible(true)`, huh's `WithAccessible`.
+Without that call, a program in a terminal whose environment sets
+`ACCESSIBLE` (to anything but the empty string, as huh's documentation
+recommends) prints lines too, so the person at the terminal decides.
 
 **Ctrl-Z suspends by default.** Unlike Bubble Tea, where each program
-must handle it ([its issue #500](https://github.com/charmbracelet/bubbletea/issues/500)),
+must handle it ([its pull request #500](https://github.com/charmbracelet/bubbletea/pull/500)),
 Ctrl-Z suspends a petitcarnets program as it would any shell program:
 the terminal is given back, the shell's `fg` brings the program back, and
 the model gets `tea::Msg::Resume`. A program that wants Ctrl-Z as a key
@@ -134,6 +145,14 @@ a program that wants nothing left behind returns an empty view last.
 | `tea.Batch(a, b)`, `tea.Sequence(a, b)` | `tea::batch([a, b])`, `tea::sequence([a, b])` |
 | `tea.Tick(d, fn)`, `tea.Every(d, fn)` | `tea::tick(d, f)`, `tea::every(d, f)` |
 | `p.Send(msg)` | `program.sender().send(msg)` |
+
+Every exported name of Bubble Tea v2, the idioms, and a Go program
+converted step by step: [docs/go-to-rust.md](docs/go-to-rust.md).
+Coming from the bubbletea-rs crate:
+[docs/migrating-from-bubbletea-rs.md](docs/migrating-from-bubbletea-rs.md).
+How the crate works inside: [docs/architecture.md](docs/architecture.md).
+The Bubble Tea issues it addresses, with the test for each:
+[docs/issues.md](docs/issues.md).
 
 ## Components
 

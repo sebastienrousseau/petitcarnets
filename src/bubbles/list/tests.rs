@@ -97,7 +97,7 @@ fn lists_match_bubbles() {
 
 // The list's own behaviour.
 
-use crate::{Key, KeyCode};
+use crate::{Cmd, Key, KeyCode};
 use std::time::UNIX_EPOCH;
 
 fn press(l: &mut Model<Thing, DefaultDelegate>, k: Key) -> Cmd<Msg> {

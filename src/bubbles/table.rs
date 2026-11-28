@@ -19,20 +19,39 @@
 //! assert_eq!(t.selected_row(), Some(&vec!["Delhi".to_string(), "India".to_string()]));
 //! ```
 
+mod build;
+mod data;
+mod keymap;
 mod scroll;
+mod style;
 
-use super::help::{self, KeyMap as HelpKeyMap};
-use super::key::Binding;
+pub use keymap::KeyMap;
+pub use style::Styles;
+
+use super::help;
 use super::viewport;
-use crate::style::{
-    Color, Position, Style, height, join_horizontal, join_vertical, truncate_with, width,
-};
+use crate::style::{Position, join_horizontal, join_vertical, truncate_with, width};
 use crate::{Cmd, Msg};
 
 /// A row: a cell for each column.
 pub type Row = Vec<String>;
 
 /// A column: Bubbles' `table.Column`.
+///
+/// ```
+/// use petitcarnets::bubbles::table::{self, Column};
+/// use petitcarnets::style::strip_ansi;
+///
+/// let t = table::Model::new()
+///     .with_columns(vec![Column::new("Name", 6), Column::new("Hidden", 0)])
+///     .with_width(10);
+/// let headers = strip_ansi(&t.view()).lines().next().map(String::from);
+/// assert_eq!(
+///     headers.as_deref(),
+///     Some(" Name   "),
+///     "a 0 wide column is hidden"
+/// );
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Column {
     /// The title.
@@ -43,6 +62,13 @@ pub struct Column {
 
 impl Column {
     /// A column titled `title`, `width` cells wide.
+    ///
+    /// ```
+    /// use petitcarnets::bubbles::table::Column;
+    ///
+    /// let c = Column::new("City", 10);
+    /// assert_eq!((c.title.as_str(), c.width), ("City", 10));
+    /// ```
     #[must_use]
     pub fn new(title: &str, width: usize) -> Self {
         Self {
@@ -52,90 +78,25 @@ impl Column {
     }
 }
 
-/// The keys of a table: Bubbles' `table.KeyMap`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct KeyMap {
-    /// A row up.
-    pub line_up: Binding,
-    /// A row down.
-    pub line_down: Binding,
-    /// A page up.
-    pub page_up: Binding,
-    /// A page down.
-    pub page_down: Binding,
-    /// Half a page up.
-    pub half_page_up: Binding,
-    /// Half a page down.
-    pub half_page_down: Binding,
-    /// To the first row.
-    pub goto_top: Binding,
-    /// To the last row.
-    pub goto_bottom: Binding,
-}
-
-impl Default for KeyMap {
-    /// Bubbles v2's `table.DefaultKeyMap`.
-    fn default() -> Self {
-        let b = |keys: &[&str], key: &str, desc: &str| Binding::new(keys).with_help(key, desc);
-        Self {
-            line_up: b(&["up", "k"], "↑/k", "up"),
-            line_down: b(&["down", "j"], "↓/j", "down"),
-            page_up: b(&["b", "pgup"], "b/pgup", "page up"),
-            page_down: b(&["f", "pgdown", "space"], "f/pgdn", "page down"),
-            half_page_up: b(&["u", "ctrl+u"], "u", "½ page up"),
-            half_page_down: b(&["d", "ctrl+d"], "d", "½ page down"),
-            goto_top: b(&["home", "g"], "g/home", "go to start"),
-            goto_bottom: b(&["end", "G"], "G/end", "go to end"),
-        }
-    }
-}
-
-impl HelpKeyMap for KeyMap {
-    fn short_help(&self) -> Vec<Binding> {
-        vec![self.line_up.clone(), self.line_down.clone()]
-    }
-
-    fn full_help(&self) -> Vec<Vec<Binding>> {
-        vec![
-            vec![
-                self.line_up.clone(),
-                self.line_down.clone(),
-                self.goto_top.clone(),
-                self.goto_bottom.clone(),
-            ],
-            vec![
-                self.page_up.clone(),
-                self.page_down.clone(),
-                self.half_page_up.clone(),
-                self.half_page_down.clone(),
-            ],
-        ]
-    }
-}
-
-/// A table's styles: Bubbles' `table.Styles`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Styles {
-    /// Each column's title.
-    pub header: Style,
-    /// Each cell.
-    pub cell: Style,
-    /// The selected row.
-    pub selected: Style,
-}
-
-impl Default for Styles {
-    /// Bubbles' `table.DefaultStyles`.
-    fn default() -> Self {
-        Self {
-            selected: Style::new().bold().fg(Color::Palette(212)),
-            header: Style::new().bold().padding(0, 1),
-            cell: Style::new().padding(0, 1),
-        }
-    }
-}
-
 /// A table: Bubbles' `table.Model`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::bubbles::table::{self, Column};
+/// # fn cities() -> table::Model {
+/// #     let mut t = table::Model::new()
+/// #         .with_columns(vec![Column::new("City", 5), Column::new("Country", 7)])
+/// #         .with_height(4)
+/// #         .with_width(20);
+/// #     t.from_values("Tokyo,Japan\nDelhi,India\nCairo,Egypt", ",");
+/// #     t
+/// # }
+///
+/// let down = tea::Msg::KeyPress(tea::Key::new(tea::KeyCode::Down));
+/// let mut t = cities().with_focused(true);
+/// let _ = t.update::<()>(&down);
+/// assert_eq!(t.selected_row().map(|r| r[0].as_str()), Some("Delhi"));
+/// ```
 #[derive(Debug, Clone)]
 pub struct Model {
     /// The keys.
@@ -160,6 +121,15 @@ impl Default for Model {
 
 impl Model {
     /// An empty, blurred table 20 rows high: `table.New`.
+    ///
+    /// ```
+    /// use petitcarnets::bubbles::table;
+    ///
+    /// let t = table::Model::new();
+    /// assert!(t.rows().is_empty() && t.columns().is_empty());
+    /// assert!(!t.focused());
+    /// assert_eq!(t.height(), 20);
+    /// ```
     #[must_use]
     pub fn new() -> Self {
         let mut m = Self {
@@ -178,63 +148,28 @@ impl Model {
         m
     }
 
-    /// With these columns: `table.WithColumns`.
-    #[must_use]
-    pub fn with_columns(mut self, cols: Vec<Column>) -> Self {
-        self.set_columns(cols);
-        self
-    }
-
-    /// With these rows: `table.WithRows`.
-    #[must_use]
-    pub fn with_rows(mut self, rows: Vec<Row>) -> Self {
-        self.set_rows(rows);
-        self
-    }
-
-    /// `rows` high, headers included: `table.WithHeight`.
-    #[must_use]
-    pub fn with_height(mut self, rows: usize) -> Self {
-        self.set_height(rows);
-        self
-    }
-
-    /// `columns` wide: `table.WithWidth`.
-    #[must_use]
-    pub fn with_width(mut self, columns: usize) -> Self {
-        self.set_width(columns);
-        self
-    }
-
-    /// Focused or not: `table.WithFocused`.
-    #[must_use]
-    pub fn with_focused(mut self, focused: bool) -> Self {
-        self.focus = focused;
-        self.update_viewport();
-        self
-    }
-
-    /// With these styles: `table.WithStyles`.
-    #[must_use]
-    pub fn with_styles(mut self, styles: Styles) -> Self {
-        self.set_styles(styles);
-        self
-    }
-
-    /// With these keys: `table.WithKeyMap`.
-    #[must_use]
-    pub fn with_key_map(mut self, key_map: KeyMap) -> Self {
-        self.key_map = key_map;
-        self
-    }
-
-    /// Replaces the styles.
-    pub fn set_styles(&mut self, styles: Styles) {
-        self.styles = styles;
-        self.update_viewport();
-    }
-
     /// Moves the selection on its keys, while focused.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::table::{self, Column};
+    /// # fn cities() -> table::Model {
+    /// #     let mut t = table::Model::new()
+    /// #         .with_columns(vec![Column::new("City", 5), Column::new("Country", 7)])
+    /// #         .with_height(4)
+    /// #         .with_width(20);
+    /// #     t.from_values("Tokyo,Japan\nDelhi,India\nCairo,Egypt", ",");
+    /// #     t
+    /// # }
+    ///
+    /// let down = tea::Msg::KeyPress(tea::Key::new(tea::KeyCode::Down));
+    /// let mut t = cities();
+    /// let _ = t.update::<()>(&down);
+    /// assert_eq!(t.cursor(), 0, "blurred, keys do nothing");
+    /// t.focus();
+    /// let _ = t.update::<()>(&tea::Msg::KeyPress(tea::Key::char('G')));
+    /// assert_eq!(t.cursor(), 2);
+    /// ```
     pub fn update<M>(&mut self, msg: &Msg<M>) -> Cmd<M> {
         if let (true, Msg::KeyPress(key)) = (self.focus, msg) {
             let k = &self.key_map;
@@ -261,36 +196,138 @@ impl Model {
     }
 
     /// Whether it is focused: only a focused table takes keys.
+    ///
+    /// ```
+    /// use petitcarnets::bubbles::table;
+    ///
+    /// assert!(!table::Model::new().focused());
+    /// assert!(table::Model::new().with_focused(true).focused());
+    /// ```
     #[must_use]
     pub const fn focused(&self) -> bool {
         self.focus
     }
 
     /// Focuses it.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::table::{self, Column};
+    /// # fn cities() -> table::Model {
+    /// #     let mut t = table::Model::new()
+    /// #         .with_columns(vec![Column::new("City", 5), Column::new("Country", 7)])
+    /// #         .with_height(4)
+    /// #         .with_width(20);
+    /// #     t.from_values("Tokyo,Japan\nDelhi,India\nCairo,Egypt", ",");
+    /// #     t
+    /// # }
+    ///
+    /// let down = tea::Msg::KeyPress(tea::Key::new(tea::KeyCode::Down));
+    /// let mut t = cities();
+    /// t.focus();
+    /// let _ = t.update::<()>(&down);
+    /// assert_eq!(t.cursor(), 1);
+    /// ```
     pub fn focus(&mut self) {
         self.focus = true;
         self.update_viewport();
     }
 
     /// Blurs it.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::table::{self, Column};
+    /// # fn cities() -> table::Model {
+    /// #     let mut t = table::Model::new()
+    /// #         .with_columns(vec![Column::new("City", 5), Column::new("Country", 7)])
+    /// #         .with_height(4)
+    /// #         .with_width(20);
+    /// #     t.from_values("Tokyo,Japan\nDelhi,India\nCairo,Egypt", ",");
+    /// #     t
+    /// # }
+    ///
+    /// let down = tea::Msg::KeyPress(tea::Key::new(tea::KeyCode::Down));
+    /// let mut t = cities().with_focused(true);
+    /// t.blur();
+    /// assert!(!t.focused());
+    /// let _ = t.update::<()>(&down);
+    /// assert_eq!(t.cursor(), 0);
+    /// ```
     pub fn blur(&mut self) {
         self.focus = false;
         self.update_viewport();
     }
 
     /// The headers, then the rows in view.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::table::{self, Column};
+    /// use tea::style::strip_ansi;
+    /// # fn cities() -> table::Model {
+    /// #     let mut t = table::Model::new()
+    /// #         .with_columns(vec![Column::new("City", 5), Column::new("Country", 7)])
+    /// #         .with_height(4)
+    /// #         .with_width(20);
+    /// #     t.from_values("Tokyo,Japan\nDelhi,India\nCairo,Egypt", ",");
+    /// #     t
+    /// # }
+    ///
+    /// let t = cities();
+    /// assert_eq!(
+    ///     strip_ansi(&t.view()),
+    ///     " City   Country \n Tokyo  Japan       \n Delhi  India       \n Cairo  Egypt       "
+    /// );
+    /// ```
     #[must_use]
     pub fn view(&self) -> String {
         self.headers_view() + "\n" + &self.viewport.view()
     }
 
     /// The help for the keys.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::table::{self, Column};
+    /// use tea::style::strip_ansi;
+    /// # fn cities() -> table::Model {
+    /// #     let mut t = table::Model::new()
+    /// #         .with_columns(vec![Column::new("City", 5), Column::new("Country", 7)])
+    /// #         .with_height(4)
+    /// #         .with_width(20);
+    /// #     t.from_values("Tokyo,Japan\nDelhi,India\nCairo,Egypt", ",");
+    /// #     t
+    /// # }
+    ///
+    /// let t = cities();
+    /// assert_eq!(strip_ansi(&t.help_view()), "↑/k up • ↓/j down");
+    /// ```
     #[must_use]
     pub fn help_view(&self) -> String {
         self.help.view(&self.key_map)
     }
 
     /// Draws the rows around the cursor into the viewport.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::table::{self, Column};
+    /// use tea::style::strip_ansi;
+    /// # fn cities() -> table::Model {
+    /// #     let mut t = table::Model::new()
+    /// #         .with_columns(vec![Column::new("City", 5), Column::new("Country", 7)])
+    /// #         .with_height(4)
+    /// #         .with_width(20);
+    /// #     t.from_values("Tokyo,Japan\nDelhi,India\nCairo,Egypt", ",");
+    /// #     t
+    /// # }
+    ///
+    /// let mut t = cities();
+    /// let before = t.view();
+    /// t.update_viewport();
+    /// assert_eq!(t.view(), before, "already drawn");
+    /// ```
     pub fn update_viewport(&mut self) {
         let h = self.viewport.height();
         self.start = self.cursor.saturating_sub(h);
@@ -299,77 +336,6 @@ impl Model {
         let blocks: Vec<&str> = rendered.iter().map(String::as_str).collect();
         self.viewport
             .set_content(&join_vertical(Position::LEFT, &blocks));
-    }
-
-    /// The selected row.
-    #[must_use]
-    pub fn selected_row(&self) -> Option<&Row> {
-        self.rows.get(self.cursor)
-    }
-
-    /// The rows.
-    #[must_use]
-    pub fn rows(&self) -> &[Row] {
-        &self.rows
-    }
-
-    /// The columns.
-    #[must_use]
-    pub fn columns(&self) -> &[Column] {
-        &self.cols
-    }
-
-    /// Replaces the rows, keeping the cursor on one.
-    pub fn set_rows(&mut self, rows: Vec<Row>) {
-        self.rows = rows;
-        self.cursor = self.cursor.min(self.rows.len().saturating_sub(1));
-        self.update_viewport();
-    }
-
-    /// Replaces the columns.
-    pub fn set_columns(&mut self, cols: Vec<Column>) {
-        self.cols = cols;
-        self.update_viewport();
-    }
-
-    /// Sets the width.
-    pub fn set_width(&mut self, columns: usize) {
-        self.viewport.set_width(columns);
-        self.update_viewport();
-    }
-
-    /// Sets the height, headers included.
-    pub fn set_height(&mut self, rows: usize) {
-        self.viewport
-            .set_height(rows.saturating_sub(height(&self.headers_view())));
-        self.update_viewport();
-    }
-
-    /// The rows' height.
-    #[must_use]
-    pub const fn height(&self) -> usize {
-        self.viewport.height()
-    }
-
-    /// The width.
-    #[must_use]
-    pub const fn width(&self) -> usize {
-        self.viewport.width()
-    }
-
-    /// The selected row's index.
-    #[must_use]
-    pub const fn cursor(&self) -> usize {
-        self.cursor
-    }
-
-    /// Rows from `value`: a line each, cells split at `separator`.
-    pub fn from_values(&mut self, value: &str, separator: &str) {
-        let rows = value
-            .split('\n')
-            .map(|line| line.split(separator).map(String::from).collect())
-            .collect();
-        self.set_rows(rows);
     }
 
     /// The column titles, each in the header style.

@@ -80,6 +80,8 @@ pub(crate) struct Modes {
     held: Vec<TerminalMode>,
     /// What colours the terminal is sent.
     profile: ColorProfile,
+    /// Whether autowrap stays on, for output printed as lines.
+    autowrap: bool,
 }
 
 impl Default for Modes {
@@ -88,6 +90,7 @@ impl Default for Modes {
             now: None,
             held: Vec::new(),
             profile: ColorProfile::TrueColor,
+            autowrap: false,
         }
     }
 }
@@ -96,6 +99,12 @@ impl Modes {
     /// Brings the colours of the next frame's modes down to `profile`.
     pub(crate) fn set_color_profile(&mut self, profile: ColorProfile) {
         self.profile = profile;
+    }
+
+    /// Leaves autowrap on, so long lines wrap: for output printed as
+    /// lines rather than drawn in cells.
+    pub(crate) const fn keep_autowrap(&mut self) {
+        self.autowrap = true;
     }
 
     /// Turns every mode off for another program, newest first, as at the
@@ -128,9 +137,11 @@ impl Modes {
     }
 
     /// Turns modes on and off so the terminal matches `view`. The first
-    /// call also turns autowrap off, for the renderer.
+    /// call also turns autowrap off, for the renderer, unless it is kept.
     pub(crate) fn apply(&mut self, view: &View, backend: &mut impl Backend) -> io::Result<()> {
-        self.hold(TerminalMode::NoAutowrap, backend)?;
+        if !self.autowrap {
+            self.hold(TerminalMode::NoAutowrap, backend)?;
+        }
         let want = Wanted::of(view, self.profile);
         let first = self.now.is_none();
         let was = self.now.take().unwrap_or_default();

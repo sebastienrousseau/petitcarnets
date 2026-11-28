@@ -16,6 +16,38 @@ mod route;
 /// switch. More variants arrive as the runtime grows, so keep a `_` arm.
 /// Sequences the terminal sends that are not listed here are read and
 /// dropped; they never arrive as keys.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::testing::TestProgram;
+///
+/// struct Notes(String, u16);
+///
+/// impl tea::Model for Notes {
+///     type Msg = ();
+///
+///     fn update(&mut self, msg: tea::Msg<()>) -> tea::Cmd<()> {
+///         match msg {
+///             tea::Msg::KeyPress(key) if key == "ctrl+c" => return tea::quit(),
+///             tea::Msg::Paste(text) => self.0.push_str(&text),
+///             tea::Msg::WindowSize(size) => self.1 = size.width,
+///             _ => {}
+///         }
+///         tea::Cmd::none()
+///     }
+/// #
+/// #     fn view(&self) -> tea::View {
+/// #         tea::View::default()
+/// #     }
+/// }
+///
+/// let mut test = TestProgram::new(Notes(String::new(), 0), 20, 2);
+/// assert_eq!(test.model().1, 20);
+/// test.bytes("\x1b[200~hello\x1b[201~");
+/// assert_eq!(test.model().0, "hello");
+/// test.press(tea::Key::ctrl('c'));
+/// assert!(test.is_finished());
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Msg<M> {
@@ -135,6 +167,18 @@ pub enum Msg<M> {
 
 /// Which clipboard a [`Msg::Clipboard`] came from: the OSC 52 selection
 /// byte, as Bubble Tea's `ClipboardSelection`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::ClipboardSelection;
+///
+/// assert_eq!(ClipboardSelection::from(b'c'), ClipboardSelection::System);
+/// assert_eq!(
+///     ClipboardSelection::from(b'q'),
+///     ClipboardSelection::Other(b'q')
+/// );
+/// assert_eq!(u8::from(ClipboardSelection::Primary), b'p');
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ClipboardSelection {
     /// The system clipboard (`c`).
@@ -166,6 +210,33 @@ impl From<ClipboardSelection> for u8 {
 }
 
 /// A terminal's colour scheme.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::testing::TestProgram;
+///
+/// /// Keeps every message it gets.
+/// struct Log(Vec<tea::Msg<()>>);
+///
+/// impl tea::Model for Log {
+///     type Msg = ();
+///
+///     fn update(&mut self, msg: tea::Msg<()>) -> tea::Cmd<()> {
+///         self.0.push(msg);
+///         tea::Cmd::none()
+///     }
+/// #
+/// #     fn view(&self) -> tea::View {
+/// #         tea::View::default()
+/// #     }
+/// }
+///
+/// let mut test = TestProgram::new(Log(Vec::new()), 20, 1);
+/// // The terminal says it shows a dark scheme.
+/// test.bytes("\x1b[?997;1n");
+/// let dark = tea::Msg::ColorScheme(tea::ColorScheme::Dark);
+/// assert_eq!(test.model().0.last(), Some(&dark));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ColorScheme {
     /// Light text on a dark background.
@@ -175,6 +246,15 @@ pub enum ColorScheme {
 }
 
 /// A terminal size in cells.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::Size;
+///
+/// let size = Size::new(80, 24);
+/// assert_eq!((size.width, size.height), (80, 24));
+/// assert_eq!(Size::default(), Size::new(0, 0));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Size {
     /// Columns.
@@ -193,6 +273,34 @@ impl Size {
 
 /// Why a program stopped without returning its model.
 /// Bubble Tea's `ErrProgramKilled`, `ErrInterrupted` and `ErrProgramPanic`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::testing::TestProgram;
+///
+/// struct Idle;
+///
+/// impl tea::Model for Idle {
+///     type Msg = ();
+///
+///     fn update(&mut self, _: tea::Msg<()>) -> tea::Cmd<()> {
+///         tea::Cmd::none()
+///     }
+///
+///     fn view(&self) -> tea::View {
+///         "idle".into()
+///     }
+/// }
+///
+/// let mut test = TestProgram::new(Idle, 20, 1);
+/// test.interrupt();
+/// let err = test.into_result().err();
+/// assert!(matches!(err, Some(tea::Error::Interrupted)));
+/// assert_eq!(
+///     err.map(|e| e.to_string()).as_deref(),
+///     Some("program was interrupted")
+/// );
+/// ```
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Error {

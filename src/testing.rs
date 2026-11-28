@@ -12,6 +12,36 @@
 //! [`TestBackend`] is the simpler, older way: a [`Backend`](crate::Backend)
 //! that plays scripted input on the real clock, for
 //! [`Program::run_with`](crate::Program::run_with).
+//!
+//! ```
+//! use petitcarnets as tea;
+//! use tea::testing::TestProgram;
+//!
+//! struct Echo(String);
+//!
+//! impl tea::Model for Echo {
+//!     type Msg = ();
+//!
+//!     fn update(&mut self, msg: tea::Msg<()>) -> tea::Cmd<()> {
+//!         match msg {
+//!             tea::Msg::KeyPress(key) if key == "enter" => return tea::quit(),
+//!             tea::Msg::KeyPress(key) => self.0.push_str(&key.text),
+//!             _ => {}
+//!         }
+//!         tea::Cmd::none()
+//!     }
+//!
+//!     fn view(&self) -> tea::View {
+//!         format!("> {}", self.0).into()
+//!     }
+//! }
+//!
+//! let mut test = TestProgram::new(Echo(String::new()), 20, 2);
+//! test.type_text("hi");
+//! assert_eq!(test.screen().text(), "> hi");
+//! test.press(tea::Key::new(tea::KeyCode::Enter));
+//! assert_eq!(test.final_model().0, "hi");
+//! ```
 
 mod golden;
 mod program;

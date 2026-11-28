@@ -35,14 +35,97 @@ use crate::style::{Color, Position, Style, join_horizontal, width};
 use crate::{Cmd, Msg};
 
 /// Something with bindings to show in help: Bubbles' `help.KeyMap`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::bubbles::help::{self, KeyMap};
+/// use tea::bubbles::key::Binding;
+///
+/// struct Keys(Binding);
+///
+/// impl KeyMap for Keys {
+///     fn short_help(&self) -> Vec<Binding> {
+///         vec![self.0.clone()]
+///     }
+///     fn full_help(&self) -> Vec<Vec<Binding>> {
+///         vec![vec![self.0.clone()]]
+///     }
+/// }
+///
+/// let keys = Keys(Binding::new(&["q"]).with_help("q", "quit"));
+/// let view = help::Model::new().view(&keys);
+/// assert_eq!(tea::style::strip_ansi(&view), "q quit");
+/// ```
 pub trait KeyMap {
     /// The bindings for the short, one line help.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::help::{self, KeyMap};
+    /// use tea::bubbles::key::Binding;
+    /// # struct Keys {
+    /// #     up: Binding,
+    /// #     quit: Binding,
+    /// # }
+    /// # impl KeyMap for Keys {
+    /// #     fn short_help(&self) -> Vec<Binding> {
+    /// #         vec![self.up.clone(), self.quit.clone()]
+    /// #     }
+    /// #     fn full_help(&self) -> Vec<Vec<Binding>> {
+    /// #         vec![vec![self.up.clone()], vec![self.quit.clone()]]
+    /// #     }
+    /// # }
+    /// # let keys = Keys {
+    /// #     up: Binding::new(&["up"]).with_help("↑", "up"),
+    /// #     quit: Binding::new(&["q"]).with_help("q", "quit"),
+    /// # };
+    ///
+    /// assert_eq!(keys.short_help().len(), 2);
+    /// let view = help::Model::new().view(&keys);
+    /// assert_eq!(tea::style::strip_ansi(&view), "↑ up • q quit");
+    /// ```
     fn short_help(&self) -> Vec<Binding>;
     /// The bindings for the full help, a column each group.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::help::{self, KeyMap};
+    /// use tea::bubbles::key::Binding;
+    /// # struct Keys {
+    /// #     up: Binding,
+    /// #     quit: Binding,
+    /// # }
+    /// # impl KeyMap for Keys {
+    /// #     fn short_help(&self) -> Vec<Binding> {
+    /// #         vec![self.up.clone(), self.quit.clone()]
+    /// #     }
+    /// #     fn full_help(&self) -> Vec<Vec<Binding>> {
+    /// #         vec![vec![self.up.clone()], vec![self.quit.clone()]]
+    /// #     }
+    /// # }
+    /// # let keys = Keys {
+    /// #     up: Binding::new(&["up"]).with_help("↑", "up"),
+    /// #     quit: Binding::new(&["q"]).with_help("q", "quit"),
+    /// # };
+    ///
+    /// assert_eq!(keys.full_help().len(), 2, "two columns");
+    /// let mut help = help::Model::new();
+    /// help.show_all = true;
+    /// assert_eq!(tea::style::strip_ansi(&help.view(&keys)), "↑ up    q quit");
+    /// ```
     fn full_help(&self) -> Vec<Vec<Binding>>;
 }
 
 /// The styles of help: Bubbles' `help.Styles`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::bubbles::help::Styles;
+///
+/// let dark = Styles::new(true);
+/// assert_ne!(dark, Styles::new(false));
+/// assert_eq!(dark.short_key, dark.full_key);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Styles {
     /// The ellipsis shown when help is cut.
@@ -64,6 +147,16 @@ pub struct Styles {
 impl Styles {
     /// Bubbles' default styles for a dark (`is_dark`) or light
     /// background: `help.DefaultStyles`.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::help::Styles;
+    /// use tea::style::{Color, Style};
+    ///
+    /// let s = Styles::new(true);
+    /// assert_eq!(s.short_key, Style::new().fg(Color::Rgb(0x62, 0x62, 0x62)));
+    /// assert_eq!(s.ellipsis, s.short_separator);
+    /// ```
     #[must_use]
     pub fn new(is_dark: bool) -> Self {
         let pick = |dark: Color, light: Color| if is_dark { dark } else { light };
@@ -92,6 +185,32 @@ impl Styles {
 }
 
 /// The help view: Bubbles' `help.Model`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::bubbles::help::{self, KeyMap};
+/// use tea::bubbles::key::Binding;
+/// # struct Keys {
+/// #     up: Binding,
+/// #     quit: Binding,
+/// # }
+/// # impl KeyMap for Keys {
+/// #     fn short_help(&self) -> Vec<Binding> {
+/// #         vec![self.up.clone(), self.quit.clone()]
+/// #     }
+/// #     fn full_help(&self) -> Vec<Vec<Binding>> {
+/// #         vec![vec![self.up.clone()], vec![self.quit.clone()]]
+/// #     }
+/// # }
+/// # let keys = Keys {
+/// #     up: Binding::new(&["up"]).with_help("↑", "up"),
+/// #     quit: Binding::new(&["q"]).with_help("q", "quit"),
+/// # };
+///
+/// let mut help = help::Model::new();
+/// help.short_separator = " | ".into();
+/// assert_eq!(tea::style::strip_ansi(&help.view(&keys)), "↑ up | q quit");
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Model {
     /// Whether to show the full help.
@@ -116,6 +235,16 @@ impl Default for Model {
 impl Model {
     /// Short help, with Bubbles' separators, ellipsis and dark styles:
     /// `help.New`.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::help;
+    ///
+    /// let help = help::Model::new();
+    /// assert!(!help.show_all);
+    /// assert_eq!(help.short_separator, " • ");
+    /// assert_eq!((help.ellipsis.as_str(), help.width()), ("…", 0));
+    /// ```
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -129,11 +258,48 @@ impl Model {
     }
 
     /// Does nothing: help has no state of its own to change.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::help;
+    ///
+    /// let mut help = help::Model::new();
+    /// let key = tea::Msg::<()>::KeyPress(tea::Key::char('?'));
+    /// assert!(help.update(&key).is_none());
+    /// assert_eq!(help, help::Model::new(), "unchanged");
+    /// ```
     pub fn update<M>(&mut self, _msg: &Msg<M>) -> Cmd<M> {
         Cmd::none()
     }
 
     /// The help for `keys`, full or short as [`Model::show_all`] says.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::help::{self, KeyMap};
+    /// use tea::bubbles::key::Binding;
+    /// # struct Keys {
+    /// #     up: Binding,
+    /// #     quit: Binding,
+    /// # }
+    /// # impl KeyMap for Keys {
+    /// #     fn short_help(&self) -> Vec<Binding> {
+    /// #         vec![self.up.clone(), self.quit.clone()]
+    /// #     }
+    /// #     fn full_help(&self) -> Vec<Vec<Binding>> {
+    /// #         vec![vec![self.up.clone()], vec![self.quit.clone()]]
+    /// #     }
+    /// # }
+    /// # let keys = Keys {
+    /// #     up: Binding::new(&["up"]).with_help("↑", "up"),
+    /// #     quit: Binding::new(&["q"]).with_help("q", "quit"),
+    /// # };
+    ///
+    /// let mut help = help::Model::new();
+    /// assert_eq!(tea::style::strip_ansi(&help.view(&keys)), "↑ up • q quit");
+    /// help.show_all = true;
+    /// assert_eq!(tea::style::strip_ansi(&help.view(&keys)), "↑ up    q quit");
+    /// ```
     #[must_use]
     pub fn view(&self, keys: &impl KeyMap) -> String {
         if self.show_all {
@@ -144,11 +310,38 @@ impl Model {
     }
 
     /// The most columns help takes; 0 is no limit.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::help;
+    /// use tea::bubbles::key::Binding;
+    ///
+    /// let keys = [
+    ///     Binding::new(&["up"]).with_help("↑", "up"),
+    ///     Binding::new(&["q"]).with_help("q", "quit"),
+    /// ];
+    /// let mut help = help::Model::new();
+    /// help.set_width(8);
+    /// assert_eq!(
+    ///     tea::style::strip_ansi(&help.short_help_view(&keys)),
+    ///     "↑ up …"
+    /// );
+    /// ```
     pub const fn set_width(&mut self, columns: usize) {
         self.width = columns;
     }
 
     /// The most columns help takes.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::help;
+    ///
+    /// let mut help = help::Model::new();
+    /// assert_eq!(help.width(), 0, "no limit");
+    /// help.set_width(40);
+    /// assert_eq!(help.width(), 40);
+    /// ```
     #[must_use]
     pub const fn width(&self) -> usize {
         self.width
@@ -156,6 +349,20 @@ impl Model {
 
     /// One line of the bindings that are on, `key desc` with separators,
     /// cut with the ellipsis where the width ends.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::help;
+    /// use tea::bubbles::key::Binding;
+    ///
+    /// let keys = [
+    ///     Binding::new(&["up"]).with_help("↑", "up"),
+    ///     Binding::new(&["x"]).with_help("x", "off").with_disabled(),
+    ///     Binding::new(&["q"]).with_help("q", "quit"),
+    /// ];
+    /// let view = help::Model::new().short_help_view(&keys);
+    /// assert_eq!(tea::style::strip_ansi(&view), "↑ up • q quit");
+    /// ```
     #[must_use]
     pub fn short_help_view(&self, bindings: &[Binding]) -> String {
         let separator = self.styles.short_separator.paint(&self.short_separator);
@@ -181,6 +388,19 @@ impl Model {
 
     /// A column for each group with a binding on: keys, then their
     /// descriptions, columns cut with the ellipsis where the width ends.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::help;
+    /// use tea::bubbles::key::Binding;
+    ///
+    /// let column = vec![
+    ///     Binding::new(&["up"]).with_help("↑", "up"),
+    ///     Binding::new(&["down"]).with_help("↓", "down"),
+    /// ];
+    /// let view = help::Model::new().full_help_view(&[column]);
+    /// assert_eq!(tea::style::strip_ansi(&view), "↑ up  \n↓ down");
+    /// ```
     #[must_use]
     pub fn full_help_view(&self, groups: &[Vec<Binding>]) -> String {
         let mut columns = Vec::new();

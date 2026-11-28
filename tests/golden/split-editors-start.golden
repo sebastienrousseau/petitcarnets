@@ -1,0 +1,16 @@
+size 60x12, alternate screen
+cursor 59,10 hidden, style 0
+modes 1049 2004
+keyboard flags 1, modifyOtherKeys 2
+------------------------------------------------------------
+╭────────────────────────────╮
+│  1 Type something          │   1 Type something
+│                            │
+│                            │
+│                            │
+│                            │
+│                            │
+│                            │
+╰────────────────────────────╯
+
+tab next • shift+tab prev • ctrl+n add an editor • ctrl+w re

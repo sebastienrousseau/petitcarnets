@@ -1,6 +1,7 @@
 use super::*;
 use crate::bubbles::tests::{messages, rows};
-use crate::style::strip_ansi;
+use crate::style::{Color, strip_ansi};
+use std::time::Duration;
 
 // Against Bubbles v2, from tests/fixtures/bubbles.tsv.
 

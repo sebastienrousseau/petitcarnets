@@ -12,10 +12,12 @@
 //! ```
 
 mod blend;
+mod build;
 mod spring;
+mod view;
 
 use super::next_id;
-use crate::style::{Color, Style, round_clamped, to_f64, width};
+use crate::style::{Color, Style};
 use crate::{Cmd, Msg as TeaMsg};
 use spring::Spring;
 use std::time::Duration;
@@ -51,6 +53,42 @@ const EMPTY_COLOR: Color = hex(0x60_6060);
 pub type ColorFn = fn(total: f64, current: f64) -> Color;
 
 /// Time for a bar's next animation frame: Bubbles' `progress.FrameMsg`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use std::time::Duration;
+/// use tea::bubbles::progress;
+/// use tea::style::strip_ansi;
+/// use tea::testing::TestProgram;
+/// # struct App(
+/// #     progress::Model,
+/// #     fn(&mut progress::Model) -> tea::Cmd<progress::Msg>,
+/// # );
+/// #
+/// # impl tea::Model for App {
+/// #     type Msg = progress::Msg;
+/// #     fn init(&mut self) -> tea::Cmd<progress::Msg> {
+/// #         (self.1)(&mut self.0)
+/// #     }
+/// #     fn update(&mut self, msg: tea::Msg<progress::Msg>) -> tea::Cmd<progress::Msg> {
+/// #         match msg {
+/// #             tea::Msg::KeyPress(_) => (self.1)(&mut self.0),
+/// #             _ => self.0.update(&msg),
+/// #         }
+/// #     }
+/// #     fn view(&self) -> tea::View {
+/// #         tea::View::new(self.0.view())
+/// #     }
+/// # }
+///
+/// // The app sets the bar at the start, and again on a key.
+/// let bar = progress::Model::new().with_width(10).without_percentage();
+/// let mut test = TestProgram::new(App(bar, |p| p.set_percent(1.0)), 10, 1);
+/// test.advance(Duration::from_millis(50));
+/// let bar = &test.model().0;
+/// assert!(bar.is_animating(), "a few frames in");
+/// assert!(strip_ansi(&bar.view()).starts_with("▌"));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FrameMsg {
     id: u64,
@@ -61,6 +99,40 @@ pub struct FrameMsg {
 pub type Msg = FrameMsg;
 
 /// A progress bar: Bubbles' `progress.Model`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use std::time::Duration;
+/// use tea::bubbles::progress;
+/// use tea::style::strip_ansi;
+/// use tea::testing::TestProgram;
+/// # struct App(
+/// #     progress::Model,
+/// #     fn(&mut progress::Model) -> tea::Cmd<progress::Msg>,
+/// # );
+/// #
+/// # impl tea::Model for App {
+/// #     type Msg = progress::Msg;
+/// #     fn init(&mut self) -> tea::Cmd<progress::Msg> {
+/// #         (self.1)(&mut self.0)
+/// #     }
+/// #     fn update(&mut self, msg: tea::Msg<progress::Msg>) -> tea::Cmd<progress::Msg> {
+/// #         match msg {
+/// #             tea::Msg::KeyPress(_) => (self.1)(&mut self.0),
+/// #             _ => self.0.update(&msg),
+/// #         }
+/// #     }
+/// #     fn view(&self) -> tea::View {
+/// #         tea::View::new(self.0.view())
+/// #     }
+/// # }
+///
+/// // The app sets the bar at the start, and again on a key.
+/// let bar = progress::Model::new().with_width(10).without_percentage();
+/// let mut test = TestProgram::new(App(bar, |p| p.set_percent(0.5)), 10, 1);
+/// test.advance(Duration::from_secs(1));
+/// assert_eq!(strip_ansi(&test.model().0.view()), "▌▌▌▌▌░░░░░");
+/// ```
 #[derive(Debug, Clone)]
 pub struct Model {
     /// The character of the filled part.
@@ -98,6 +170,16 @@ impl Default for Model {
 impl Model {
     /// A bar 40 cells wide in Bubbles' blueberry, with the percentage:
     /// `progress.New`.
+    ///
+    /// ```
+    /// use petitcarnets::bubbles::progress;
+    /// use petitcarnets::style::strip_ansi;
+    ///
+    /// let bar = progress::Model::new();
+    /// assert_eq!(bar.width(), 40);
+    /// assert_eq!(bar.percent(), 0.0);
+    /// assert!(strip_ansi(&bar.view()).ends_with("░   0%"));
+    /// ```
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -121,85 +203,59 @@ impl Model {
         }
     }
 
-    /// Bubbles' gradient, purple to pink: `progress.WithDefaultBlend`.
-    #[must_use]
-    pub fn with_default_blend(self) -> Self {
-        self.with_colors(&[BLEND_START, BLEND_END])
-    }
-
-    /// No colours is the default solid colour, one a solid colour, more
-    /// a gradient through them (24-bit colours only):
-    /// `progress.WithColors`.
-    #[must_use]
-    pub fn with_colors(mut self, colors: &[Color]) -> Self {
-        match colors {
-            [] | [_] => {
-                self.full_color = colors.first().copied().unwrap_or(FULL_COLOR);
-                self.blend.clear();
-                self.color_fn = None;
-            }
-            many => self.blend = many.to_vec(),
-        }
-        self
-    }
-
-    /// Each cell's colour from `f`: `progress.WithColorFunc`.
-    #[must_use]
-    pub fn with_color_fn(mut self, f: ColorFn) -> Self {
-        self.color_fn = Some(f);
-        self.blend.clear();
-        self
-    }
-
-    /// The full and empty characters: `progress.WithFillCharacters`.
-    #[must_use]
-    pub const fn with_fill_characters(mut self, full: char, empty: char) -> Self {
-        self.full = full;
-        self.empty = empty;
-        self
-    }
-
-    /// Without the percentage: `progress.WithoutPercentage`.
-    #[must_use]
-    pub const fn without_percentage(mut self) -> Self {
-        self.show_percentage = false;
-        self
-    }
-
-    /// `columns` wide, percentage included: `progress.WithWidth`.
-    #[must_use]
-    pub const fn with_width(mut self, columns: usize) -> Self {
-        self.width = columns;
-        self
-    }
-
-    /// The spring's frequency and damping: `progress.WithSpringOptions`.
-    #[must_use]
-    pub fn with_spring_options(mut self, frequency: f64, damping: f64) -> Self {
-        self.set_spring_options(frequency, damping);
-        self
-    }
-
-    /// Whether the gradient spans the filled part rather than the whole
-    /// bar: `progress.WithScaled`.
-    #[must_use]
-    pub const fn with_scaled(mut self, on: bool) -> Self {
-        self.scale_blend = on;
-        self
-    }
-
-    /// Changes the spring.
-    pub fn set_spring_options(&mut self, frequency: f64, damping: f64) {
-        self.spring = Spring::new(frame_seconds(), frequency, damping);
-    }
-
     /// The bar's id, which its frames carry.
+    ///
+    /// ```
+    /// use petitcarnets::bubbles::progress;
+    ///
+    /// assert_ne!(progress::Model::new().id(), progress::Model::new().id());
+    /// ```
     #[must_use]
     pub const fn id(&self) -> u64 {
         self.id
     }
 
     /// Moves the bar a frame on its own latest frame message.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use std::time::Duration;
+    /// use tea::bubbles::progress;
+    /// use tea::style::strip_ansi;
+    /// use tea::testing::TestProgram;
+    /// # struct App(
+    /// #     progress::Model,
+    /// #     fn(&mut progress::Model) -> tea::Cmd<progress::Msg>,
+    /// # );
+    /// #
+    /// # impl tea::Model for App {
+    /// #     type Msg = progress::Msg;
+    /// #     fn init(&mut self) -> tea::Cmd<progress::Msg> {
+    /// #         (self.1)(&mut self.0)
+    /// #     }
+    /// #     fn update(&mut self, msg: tea::Msg<progress::Msg>) -> tea::Cmd<progress::Msg> {
+    /// #         match msg {
+    /// #             tea::Msg::KeyPress(_) => (self.1)(&mut self.0),
+    /// #             _ => self.0.update(&msg),
+    /// #         }
+    /// #     }
+    /// #     fn view(&self) -> tea::View {
+    /// #         tea::View::new(self.0.view())
+    /// #     }
+    /// # }
+    ///
+    /// // The app sets the bar at the start, and again on a key.
+    /// let bar = progress::Model::new().with_width(10).without_percentage();
+    /// let mut test = TestProgram::new(App(bar, |p| p.set_percent(1.0)), 10, 1);
+    /// test.advance(Duration::from_millis(100));
+    /// let moving = strip_ansi(&test.model().0.view());
+    /// assert!(
+    ///     moving.contains("▌") && moving.contains("░"),
+    ///     "part way: {moving}"
+    /// );
+    /// test.advance(Duration::from_secs(1));
+    /// assert_eq!(strip_ansi(&test.model().0.view()), "▌".repeat(10));
+    /// ```
     pub fn update(&mut self, msg: &TeaMsg<Msg>) -> Cmd<Msg> {
         match msg {
             TeaMsg::App(f) if f.id == self.id && f.tag == self.tag && self.is_animating() => {
@@ -212,12 +268,29 @@ impl Model {
     }
 
     /// The percentage it is going to, from 0.0 to 1.0.
+    ///
+    /// ```
+    /// use petitcarnets::bubbles::progress;
+    ///
+    /// let mut bar = progress::Model::new();
+    /// let _frames = bar.set_percent(0.25);
+    /// assert_eq!(bar.percent(), 0.25, "the target, not what shows yet");
+    /// ```
     #[must_use]
     pub const fn percent(&self) -> f64 {
         self.target
     }
 
     /// Animates to `p`, from 0.0 to 1.0.
+    ///
+    /// ```
+    /// use petitcarnets::bubbles::progress;
+    ///
+    /// let mut bar = progress::Model::new();
+    /// assert!(!bar.set_percent(1.5).is_none(), "frames to animate");
+    /// assert_eq!(bar.percent(), 1.0, "clamped");
+    /// assert!(bar.is_animating());
+    /// ```
     pub fn set_percent(&mut self, p: f64) -> Cmd<Msg> {
         self.target = clamp_percent(p);
         self.tag += 1;
@@ -225,44 +298,129 @@ impl Model {
     }
 
     /// Animates `v` further.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use std::time::Duration;
+    /// use tea::bubbles::progress;
+    /// use tea::style::strip_ansi;
+    /// use tea::testing::TestProgram;
+    /// # struct App(
+    /// #     progress::Model,
+    /// #     fn(&mut progress::Model) -> tea::Cmd<progress::Msg>,
+    /// # );
+    /// #
+    /// # impl tea::Model for App {
+    /// #     type Msg = progress::Msg;
+    /// #     fn init(&mut self) -> tea::Cmd<progress::Msg> {
+    /// #         (self.1)(&mut self.0)
+    /// #     }
+    /// #     fn update(&mut self, msg: tea::Msg<progress::Msg>) -> tea::Cmd<progress::Msg> {
+    /// #         match msg {
+    /// #             tea::Msg::KeyPress(_) => (self.1)(&mut self.0),
+    /// #             _ => self.0.update(&msg),
+    /// #         }
+    /// #     }
+    /// #     fn view(&self) -> tea::View {
+    /// #         tea::View::new(self.0.view())
+    /// #     }
+    /// # }
+    ///
+    /// // The app moves the bar at the start, and again on a key.
+    /// let bar = progress::Model::new().with_width(10).without_percentage();
+    /// let mut test = TestProgram::new(App(bar, |p| p.incr_percent(0.3)), 10, 1);
+    /// test.advance(Duration::from_secs(1));
+    /// test.press(tea::Key::char(' '));
+    /// test.advance(Duration::from_secs(1));
+    /// assert_eq!(test.model().0.percent(), 0.6);
+    /// assert_eq!(strip_ansi(&test.model().0.view()), "▌▌▌▌▌▌░░░░");
+    /// ```
     pub fn incr_percent(&mut self, v: f64) -> Cmd<Msg> {
         self.set_percent(self.target + v)
     }
 
     /// Animates `v` back.
+    ///
+    /// ```
+    /// use petitcarnets::bubbles::progress;
+    ///
+    /// let mut bar = progress::Model::new();
+    /// let _frames = bar.set_percent(0.5);
+    /// let _frames = bar.decr_percent(0.2);
+    /// assert!((bar.percent() - 0.3).abs() < 1e-9);
+    /// let _frames = bar.decr_percent(1.0);
+    /// assert_eq!(bar.percent(), 0.0, "clamped");
+    /// ```
     pub fn decr_percent(&mut self, v: f64) -> Cmd<Msg> {
         self.set_percent(self.target - v)
     }
 
     /// Whether it is still moving.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use std::time::Duration;
+    /// use tea::bubbles::progress;
+    /// use tea::style::strip_ansi;
+    /// use tea::testing::TestProgram;
+    /// # struct App(
+    /// #     progress::Model,
+    /// #     fn(&mut progress::Model) -> tea::Cmd<progress::Msg>,
+    /// # );
+    /// #
+    /// # impl tea::Model for App {
+    /// #     type Msg = progress::Msg;
+    /// #     fn init(&mut self) -> tea::Cmd<progress::Msg> {
+    /// #         (self.1)(&mut self.0)
+    /// #     }
+    /// #     fn update(&mut self, msg: tea::Msg<progress::Msg>) -> tea::Cmd<progress::Msg> {
+    /// #         match msg {
+    /// #             tea::Msg::KeyPress(_) => (self.1)(&mut self.0),
+    /// #             _ => self.0.update(&msg),
+    /// #         }
+    /// #     }
+    /// #     fn view(&self) -> tea::View {
+    /// #         tea::View::new(self.0.view())
+    /// #     }
+    /// # }
+    ///
+    /// // The app sets the bar at the start, and again on a key.
+    /// let bar = progress::Model::new().with_width(10).without_percentage();
+    /// let mut test = TestProgram::new(App(bar, |p| p.set_percent(1.0)), 10, 1);
+    /// assert!(test.model().0.is_animating());
+    /// test.advance(Duration::from_secs(1));
+    /// assert!(!test.model().0.is_animating());
+    /// ```
     #[must_use]
     pub fn is_animating(&self) -> bool {
         !((self.shown - self.target).abs() < 0.001 && self.velocity < 0.01)
     }
 
     /// The width.
+    ///
+    /// ```
+    /// use petitcarnets::bubbles::progress;
+    ///
+    /// assert_eq!(progress::Model::new().width(), 40);
+    /// assert_eq!(progress::Model::new().with_width(8).width(), 8);
+    /// ```
     #[must_use]
     pub const fn width(&self) -> usize {
         self.width
     }
 
     /// Sets the width.
+    ///
+    /// ```
+    /// use petitcarnets::bubbles::progress;
+    /// use petitcarnets::style::strip_ansi;
+    ///
+    /// let mut bar = progress::Model::new().without_percentage();
+    /// bar.set_width(6);
+    /// assert_eq!(strip_ansi(&bar.view_as(0.5)), "▌▌▌░░░");
+    /// ```
     pub const fn set_width(&mut self, columns: usize) {
         self.width = columns;
-    }
-
-    /// The bar as it is in its animation.
-    #[must_use]
-    pub fn view(&self) -> String {
-        self.view_as(self.shown)
-    }
-
-    /// The bar at `percent`, from 0.0 to 1.0, without animating.
-    #[must_use]
-    pub fn view_as(&self, percent: f64) -> String {
-        let percent = clamp_percent(percent);
-        let label = self.percentage_view(percent);
-        self.bar_view(percent, width(&label)) + &label
     }
 
     /// The next frame, a sixtieth of a second on.
@@ -273,77 +431,6 @@ impl Model {
         };
         crate::tick(Duration::from_secs(1) / FPS, move |_| msg)
     }
-
-    /// The filled and empty cells, leaving `label` cells.
-    fn bar_view(&self, percent: f64, label: usize) -> String {
-        let total = self.width.saturating_sub(label);
-        let filled = round_clamped(to_f64(total) * percent, total);
-        let half = self.full == DEFAULT_FULL_CHAR_HALF_BLOCK;
-        let mut out = if let Some(f) = self.color_fn {
-            colored_cells(self.full, filled, total, half, |t| f(percent, t))
-        } else if self.blend.is_empty() {
-            Style::new()
-                .fg(self.full_color)
-                .paint(&self.full.to_string().repeat(filled))
-        } else {
-            self.blend_cells(filled, total, half)
-        };
-        let empty = self.empty.to_string().repeat(total - filled);
-        out += &Style::new().fg(self.empty_color).paint(&empty);
-        out
-    }
-
-    /// The filled cells in the gradient; a half block takes two colours.
-    fn blend_cells(&self, filled: usize, total: usize, half: bool) -> String {
-        let per = if half { 2 } else { 1 };
-        let span = if self.scale_blend { filled } else { total };
-        let colors = blend::blend_1d(span * per, &self.blend);
-        let full = self.full.to_string();
-        (0..filled)
-            .map(|i| {
-                let style = Style::new().fg(colors[i * per]);
-                let style = if half {
-                    style.bg(colors[i * per + 1])
-                } else {
-                    style
-                };
-                style.paint(&full)
-            })
-            .collect()
-    }
-
-    /// The percentage, written and styled.
-    fn percentage_view(&self, percent: f64) -> String {
-        if !self.show_percentage {
-            return String::new();
-        }
-        self.percentage_style
-            .paint(&(self.percent_format)(percent * 100.0))
-    }
-}
-
-/// `filled` cells of `total` coloured by `color(place)`; a half block's
-/// background takes the colour half a cell on.
-fn colored_cells(
-    full: char,
-    filled: usize,
-    total: usize,
-    half: bool,
-    color: impl Fn(f64) -> Color,
-) -> String {
-    let step = 0.5 / to_f64(total);
-    (0..filled)
-        .map(|i| {
-            let current = to_f64(i) / to_f64(total);
-            let style = Style::new().fg(color(current));
-            let style = if half {
-                style.bg(color((current + step).min(1.0)))
-            } else {
-                style
-            };
-            style.paint(&full.to_string())
-        })
-        .collect()
 }
 
 /// A frame's length in seconds, as harmonica's `FPS` gives it: a

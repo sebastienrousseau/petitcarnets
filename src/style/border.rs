@@ -6,6 +6,21 @@ use super::{SIDES_SET, Style, width};
 /// The characters of a border: Lip Gloss's `Border`. Start from one of
 /// the constants and change a field to make your own, as in
 /// `Border { right: "├", ..Border::ROUNDED }`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::style::{Border, Style};
+///
+/// assert_eq!(
+///     Style::new().border(Border::DOUBLE).render("hi"),
+///     "╔══╗\n║hi║\n╚══╝"
+/// );
+/// let tee = Border {
+///     right: "├",
+///     ..Border::ROUNDED
+/// };
+/// assert_eq!(Style::new().border(tee).render("hi"), "╭──╮\n│hi├\n╰──╯");
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Border {
     /// The top edge.

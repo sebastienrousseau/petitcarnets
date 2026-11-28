@@ -1,0 +1,13 @@
+size 60x10, main screen
+cursor 0,8 hidden, style 0
+modes 2004
+keyboard flags 1, modifyOtherKeys 2
+------------------------------------------------------------
+Choose a terminal-wide color to set. All
+settings will be cleared on exit.
+
+ > Foreground
+   Background
+   Cursor
+
+Press q to quit, j/k to move, and enter to select

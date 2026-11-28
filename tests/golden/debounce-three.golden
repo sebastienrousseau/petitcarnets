@@ -1,0 +1,7 @@
+size 80x4, main screen
+cursor 14,0 hidden, style 0
+modes 2004
+keyboard flags 1, modifyOtherKeys 2
+--------------------------------------------------------------------------------
+Key presses: 3
+To exit press any key, then wait for one second without pressing anything.

@@ -440,3 +440,39 @@ fn killing_while_released_drops_the_output_that_waited() {
         "the terminal is set back: {output:?}"
     );
 }
+
+/// Prints more lines than fit above its frame when a key is pressed.
+struct TallPrint;
+
+impl tea::Model for TallPrint {
+    type Msg = ();
+
+    fn update(&mut self, msg: Msg<()>) -> tea::Cmd<()> {
+        match msg {
+            Msg::KeyPress(k) if k == "p" => {
+                let lines: Vec<String> = (1..=12).map(|n| format!("line {n}")).collect();
+                tea::println(lines.join("\n"))
+            }
+            Msg::KeyPress(k) if k == "q" => tea::quit(),
+            _ => tea::Cmd::none(),
+        }
+    }
+
+    fn view(&self) -> tea::View {
+        "first row of the view\nsecond row of the view".into()
+    }
+}
+
+/// Bubble Tea's issue #1822: one print taller than the room above an
+/// inline frame used to leave the frame off the screen (its rows pushed
+/// into the scrollback) until the next update.
+#[test]
+fn a_print_taller_than_the_window_leaves_the_frame_on_screen() {
+    let mut test = TestProgram::new(TallPrint, 40, 10);
+    test.type_text("p");
+    test.advance(ms(20));
+    let rows: Vec<String> = (0..10).map(|y| test.screen().row_text(y)).collect();
+    assert_eq!(rows[8], "first row of the view", "{rows:#?}");
+    assert_eq!(rows[9], "second row of the view", "{rows:#?}");
+    assert_eq!(rows[7], "line 12", "{rows:#?}");
+}

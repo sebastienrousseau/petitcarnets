@@ -21,7 +21,7 @@ use std::process::{Command, ExitStatus};
 /// #616 and #1424). Ctrl-Z while the child has the terminal stops both,
 /// as in a shell.
 ///
-/// ```no_run
+/// ```
 /// use petitcarnets as tea;
 /// use std::process::Command;
 ///
@@ -29,10 +29,29 @@ use std::process::{Command, ExitStatus};
 ///     EditorClosed(std::io::Result<std::process::ExitStatus>),
 /// }
 ///
-/// fn open_editor() -> tea::Cmd<Msg> {
-///     tea::exec(Command::new("vim"), Msg::EditorClosed)
+/// struct Editor(Option<bool>);
+///
+/// impl tea::Model for Editor {
+///     type Msg = Msg;
+///     fn update(&mut self, msg: tea::Msg<Msg>) -> tea::Cmd<Msg> {
+///         match msg {
+///             // `vim` in a real program; `true` here, which ends at once.
+///             tea::Msg::KeyPress(k) if k == "e" => tea::exec(Command::new("true"), Msg::EditorClosed),
+///             tea::Msg::App(Msg::EditorClosed(status)) => {
+///                 self.0 = Some(status.is_ok_and(|s| s.success()));
+///                 tea::quit()
+///             }
+///             _ => tea::Cmd::none(),
+///         }
+///     }
+///     fn view(&self) -> tea::View {
+///         "e: edit".into()
+///     }
 /// }
-/// # let _ = open_editor();
+///
+/// let mut test = tea::testing::TestProgram::new(Editor(None), 20, 2);
+/// test.type_text("e");
+/// assert_eq!(test.final_model().0, Some(true));
 /// ```
 #[must_use]
 pub fn exec<M>(

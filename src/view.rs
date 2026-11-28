@@ -14,6 +14,32 @@ use crate::mouse::MouseMode;
 ///
 /// A view is drawn inline, below the shell prompt, unless it sets
 /// [`alt_screen`](View::alt_screen), as in Bubble Tea v2.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::testing::TestProgram;
+///
+/// struct Title;
+///
+/// impl tea::Model for Title {
+///     type Msg = ();
+///
+///     fn update(&mut self, _: tea::Msg<()>) -> tea::Cmd<()> {
+///         tea::Cmd::none()
+///     }
+///
+///     fn view(&self) -> tea::View {
+///         tea::View::new("hello")
+///             .with_alt_screen(true)
+///             .with_window_title("demo")
+///     }
+/// }
+///
+/// let test = TestProgram::new(Title, 20, 2);
+/// assert_eq!(test.screen().text(), "hello");
+/// assert!(test.screen().alt_screen());
+/// assert_eq!(test.screen().title(), "demo");
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub struct View {
@@ -152,6 +178,17 @@ impl From<&str> for View {
 }
 
 /// The cursor's shape. Bubble Tea's `CursorShape`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::{Cursor, CursorShape};
+///
+/// assert_eq!(Cursor::new(0, 0).with_shape(CursorShape::Bar).style(), 5);
+/// assert_eq!(
+///     Cursor::new(0, 0).with_shape(CursorShape::Underline).style(),
+///     3
+/// );
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum CursorShape {
     /// A block.
@@ -165,6 +202,34 @@ pub enum CursorShape {
 
 /// The cursor: where it is, relative to the frame's top left, and how
 /// it looks. Bubble Tea's `tea.Cursor`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::testing::TestProgram;
+/// use tea::{Cursor, CursorShape};
+///
+/// struct Prompt;
+///
+/// impl tea::Model for Prompt {
+///     type Msg = ();
+///
+///     fn update(&mut self, _: tea::Msg<()>) -> tea::Cmd<()> {
+///         tea::Cmd::none()
+///     }
+///
+///     fn view(&self) -> tea::View {
+///         let cursor = Cursor::new(2, 0)
+///             .with_shape(CursorShape::Bar)
+///             .with_blink(false);
+///         tea::View::new("> ").with_cursor(cursor)
+///     }
+/// }
+///
+/// let test = TestProgram::new(Prompt, 20, 2);
+/// assert_eq!(test.screen().cursor(), (2, 0));
+/// assert!(test.screen().cursor_visible());
+/// assert_eq!(test.screen().cursor_style(), 6);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Cursor {
     /// The column, from 0.
@@ -229,6 +294,18 @@ impl Cursor {
 }
 
 /// What a progress bar shows. Bubble Tea's `ProgressBarState`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::{ProgressBar, ProgressBarState, TerminalMode};
+///
+/// let busy = ProgressBar::new(ProgressBarState::Indeterminate, 0);
+/// assert_eq!(
+///     TerminalMode::ProgressBar(busy).sequence(true),
+///     b"\x1b]9;4;3\x07"
+/// );
+/// assert_eq!(ProgressBarState::default(), ProgressBarState::None);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum ProgressBarState {
     /// No progress bar.
@@ -246,6 +323,18 @@ pub enum ProgressBarState {
 
 /// A progress bar the terminal shows in its tab or title bar (OSC 9;4),
 /// where it has one. Bubble Tea's `tea.ProgressBar`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::{ProgressBar, ProgressBarState, TerminalMode};
+///
+/// let bar = ProgressBar::new(ProgressBarState::Default, 150);
+/// assert_eq!(bar.value, 100);
+/// assert_eq!(
+///     TerminalMode::ProgressBar(bar).sequence(true),
+///     b"\x1b]9;4;1;100\x07"
+/// );
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct ProgressBar {
     /// What it shows.

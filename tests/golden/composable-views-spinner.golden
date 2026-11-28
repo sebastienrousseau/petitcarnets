@@ -1,0 +1,11 @@
+size 50x8, main screen
+cursor 42,5 hidden, style 0
+modes 2004
+keyboard flags 1, modifyOtherKeys 2
+--------------------------------------------------
+               ┌─────────────┐
+               │             │
+      58s      │      /      │
+               │             │
+               └─────────────┘
+tab: focus next • n: new spinner • q: exit

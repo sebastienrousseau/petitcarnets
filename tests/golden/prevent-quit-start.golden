@@ -1,0 +1,14 @@
+size 70x14, main screen
+cursor 0,10 hidden, style 0
+modes 2004
+keyboard flags 1, modifyOtherKeys 2
+----------------------------------------------------------------------
+Type some important things.
+┃   1 Only the best words
+┃
+┃
+┃
+┃
+┃
+
+ ctrl+s save • esc quit

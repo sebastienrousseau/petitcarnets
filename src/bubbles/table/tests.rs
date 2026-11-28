@@ -1,6 +1,6 @@
 use super::*;
 use crate::bubbles::tests::{messages, rows};
-use crate::style::{Border, strip_ansi};
+use crate::style::{Border, Color, Style, strip_ansi};
 
 // Against Bubbles v2, from tests/fixtures/bubbles.tsv.
 
