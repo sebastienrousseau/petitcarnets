@@ -476,3 +476,42 @@ fn a_print_taller_than_the_window_leaves_the_frame_on_screen() {
     assert_eq!(rows[9], "second row of the view", "{rows:#?}");
     assert_eq!(rows[7], "line 12", "{rows:#?}");
 }
+
+/// Starts a task on Enter; the task's message changes the view.
+#[derive(Default)]
+struct Loader {
+    loaded: bool,
+}
+
+impl tea::Model for Loader {
+    type Msg = ();
+
+    fn update(&mut self, msg: Msg<()>) -> tea::Cmd<()> {
+        match msg {
+            Msg::KeyPress(k) if k == "enter" => tea::Cmd::task(|| ()),
+            Msg::App(()) => {
+                self.loaded = true;
+                tea::Cmd::none()
+            }
+            _ => tea::Cmd::none(),
+        }
+    }
+
+    fn view(&self) -> tea::View {
+        if self.loaded { "loaded" } else { "loading" }.into()
+    }
+}
+
+/// A call that gives the program something returns with the screen
+/// showing the model as it is: here a task's message arrives after the
+/// frame for the key that started it, and the frame rate holds the next
+/// frame back, which the still clock would never release on its own.
+#[test]
+fn a_tasks_message_is_on_screen_when_the_call_returns() {
+    let mut test = TestProgram::new(Loader::default(), 20, 3);
+    let start = test.elapsed();
+    test.press(Key::new(tea::KeyCode::Enter));
+    assert!(test.model().loaded);
+    assert_eq!(test.screen().row_text(0), "loaded");
+    assert_eq!(test.elapsed(), start, "and the clock has not moved");
+}

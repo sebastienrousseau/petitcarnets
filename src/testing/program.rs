@@ -141,14 +141,14 @@ impl<M: Model> TestProgram<M> {
     /// teatest's `Send`.
     pub fn send(&mut self, msg: M::Msg) {
         self.sender.send(msg);
-        self.settle();
+        self.settle_and_show();
     }
 
     /// Sends `input` as the terminal would: a key, a mouse event, a
     /// paste, a reply or a signal.
     pub fn input(&mut self, input: Input) {
         self.harness.wire.keyboard.send(input);
-        self.settle();
+        self.settle_and_show();
     }
 
     /// Presses `key`.
@@ -169,7 +169,7 @@ impl<M: Model> TestProgram<M> {
     /// 50 ms escape timeout passes on the virtual clock.
     pub fn bytes(&mut self, bytes: impl AsRef<[u8]>) {
         self.harness.wire.keyboard.feed(bytes.as_ref());
-        self.settle();
+        self.settle_and_show();
     }
 
     /// Resizes the window, and the emulated screen, to `columns` by
@@ -430,6 +430,22 @@ impl<M: Model> TestProgram<M> {
                 "the program never goes idle at {:?}",
                 self.elapsed()
             );
+        }
+    }
+
+    /// Settles, then draws the frame the frame rate still holds back:
+    /// a call that gives the program something without moving the clock
+    /// returns with the screen showing the model as it is, though a task's
+    /// message came after the frame for the key that started it (Bubble
+    /// Tea draws it at its next frame tick; the clock here would never
+    /// get there on its own).
+    fn settle_and_show(&mut self) {
+        self.settle();
+        let Some(session) = self.running.as_mut() else {
+            return;
+        };
+        if let Err(err) = session.show(&mut self.harness) {
+            let _ = self.finish(Err(err));
         }
     }
 

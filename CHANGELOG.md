@@ -18,6 +18,21 @@ exactly 0.0.1 above the previous one.
   calls (`posix_openpt`, `grantpt`, `unlockpt`, `ptsname`) instead of
   Linux's ioctls.
 
+### Fixed
+
+- `TestProgram`: a call that gives the program something without moving
+  the clock (`send`, `press`, `type_text`, `bytes`, `input`, `resize`,
+  the signals) now returns with the screen showing the model as it is.
+  A frame the frame rate held back (after a task's message, a focus
+  report, a resize or a sent message) used to wait for the clock to
+  move, so a golden taken right after the call showed the frame before,
+  with no error. Found by `nalufx tui`. Three goldens here had captured
+  such stale frames and are corrected: `timer-stopped` (the help said
+  "s stop" after stopping), `help-narrow` (the 60-column help, cut,
+  instead of the help laid out for 20 columns) and `mouse-events` (focus
+  and blur missing). `advance` and `wait_for` keep the frame rate as
+  before.
+
 ## [0.0.7] - 2026-11-28
 
 Docs and examples: sixteen more of Bubble Tea's examples ported (39 of

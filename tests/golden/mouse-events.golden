@@ -1,5 +1,5 @@
 size 50x10, alternate screen
-cursor 30,6 hidden, style 0
+cursor 6,8 hidden, style 0
 modes 1003 1004 1006 1049 2004
 keyboard flags 1, modifyOtherKeys 2
 --------------------------------------------------
@@ -10,3 +10,5 @@ keyboard flags 1, modifyOtherKeys 2
   release (X: 9, Y: 4) left
   motion  (X: 11, Y: 5) motion
   wheel   (X: 2, Y: 2) wheelup
+  focus
+  blur

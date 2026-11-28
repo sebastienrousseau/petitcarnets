@@ -43,6 +43,12 @@ impl<M: Model, C: Clock> Session<M, C> {
         self.state.step(&mut self.model, &self.inbox, backend)
     }
 
+    /// Draws a frame the frame rate is holding back, now: for a test,
+    /// whose clock stands still until the test moves it.
+    pub(crate) fn show(&mut self, backend: &mut impl Backend) -> Result<(), Error> {
+        self.state.show(&self.model, backend)
+    }
+
     /// Takes in the events that are ready and fires the timers that are
     /// due, waiting as the clock waits; whether the model has something
     /// to hear.
