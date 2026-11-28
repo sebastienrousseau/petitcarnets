@@ -3,6 +3,8 @@
 All notable changes to this project are documented here. Every release is
 exactly 0.0.1 above the previous one.
 
+## [0.0.7] - Unreleased
+
 ## [0.0.6] - 2026-11-27
 
 Components: Bubbles v2's, under its names and with its default key
