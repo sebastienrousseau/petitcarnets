@@ -48,6 +48,35 @@ fn drain(master: c_int) -> Vec<u8> {
     out
 }
 
+/// Runs `f` while a thread reads what reaches the master end, as a
+/// terminal emulator does: a mode change that flushes waits for output
+/// to drain, and FreeBSD waits for a reader (up to its
+/// `kern.tty_drainwait`, 300 seconds) where Linux does not. What `f`
+/// gave, and every byte read.
+fn reading<T>(master: c_int, f: impl FnOnce() -> T) -> (T, Vec<u8>) {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let stop = Arc::new(AtomicBool::new(false));
+    let reader = {
+        let stop = Arc::clone(&stop);
+        std::thread::spawn(move || {
+            let mut out = Vec::new();
+            loop {
+                // Read once more after the stop, for the last bytes.
+                let last = stop.load(Ordering::SeqCst);
+                out.extend(drain(master));
+                if last {
+                    return out;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+        })
+    };
+    let value = f();
+    stop.store(true, Ordering::SeqCst);
+    (value, reader.join().expect("the reader thread"))
+}
+
 /// One test, as the guard's state is the process's: raw mode, modes on
 /// and off, handing over and back, and restoring, on a real
 /// pseudo-terminal.
@@ -84,13 +113,14 @@ fn a_guard_drives_a_real_terminal_and_gives_it_back() {
     );
     guard.raw().unwrap();
     assert_eq!(sys::get_mode(s).unwrap(), raw, "and raw again");
-    guard.restore().unwrap();
-    assert_eq!(drain(m), b"<paste off>", "what is still on is turned off");
+    let (restored, out) = reading(m, || guard.restore());
+    restored.unwrap();
+    assert_eq!(out, b"<paste off>", "what is still on is turned off");
     assert_eq!(sys::get_mode(s).unwrap(), before, "the mode is back");
     let again = TerminalGuard::enter(s, s).unwrap();
     again.on(paste, b"", b"<off on drop>").unwrap();
-    drop(again);
-    assert_eq!(drain(m), b"<off on drop>");
+    let ((), out) = reading(m, || drop(again));
+    assert_eq!(out, b"<off on drop>");
     assert_eq!(sys::get_mode(s).unwrap(), before);
     let late = TerminalGuard {
         input: s,

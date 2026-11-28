@@ -205,7 +205,8 @@ handover, keeping the recorded modes.
 
 ## sys.rs: the only unsafe code
 
-Files: `src/sys.rs`.
+Files: `src/sys.rs`, and `src/sys/pty.rs`, a pseudo-terminal for the
+tests only.
 
 The crate has no dependencies. `Cargo.toml` sets `unsafe_code = "deny"`,
 and `src/sys.rs` is the only module that allows it, with a `SAFETY`
