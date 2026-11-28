@@ -10,6 +10,17 @@ use std::ops::{BitOr, BitOrAssign};
 /// Modifier keys and lock states, Bubble Tea's `KeyMod`: combine them
 /// with `|` and test them with [`KeyMod::contains`]. The bits are Go's,
 /// in Go's order.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::{Key, KeyCode, KeyMod};
+///
+/// let mods = KeyMod::CTRL | KeyMod::SHIFT;
+/// assert!(mods.contains(KeyMod::CTRL));
+/// assert!(!mods.contains(KeyMod::ALT));
+/// assert!(KeyMod::NONE.is_empty());
+/// assert!(Key::new(KeyCode::Tab).with_mods(KeyMod::SHIFT) == "shift+tab");
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct KeyMod(i64);
 
@@ -81,6 +92,20 @@ impl BitOrAssign for KeyMod {
 ///
 /// Compare one with a name, as in `key == "ctrl+c"`, which reads as Go's
 /// `msg.String() == "ctrl+c"`, or use [`Key::matches`].
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::{Key, KeyCode};
+///
+/// let key = Key::ctrl('c');
+/// assert!(key == "ctrl+c");
+/// assert!(key.matches_any(&["q", "ctrl+c"]));
+/// assert!(Key::new(KeyCode::Enter) == "enter");
+/// // Shift and `a` types "A", and is written as it types.
+/// let shifted = Key::char('A');
+/// assert_eq!(shifted.to_string(), "A");
+/// assert_eq!(shifted.keystroke(), "shift+a");
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Key {
     /// The text the key types; empty for keys that type nothing, such as

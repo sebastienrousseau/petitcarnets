@@ -3,6 +3,42 @@
 use crate::bubbles::key::Binding;
 
 /// The keys of a list: Bubbles' `list.KeyMap`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::bubbles::list;
+/// use tea::style::strip_ansi;
+/// # struct Fruit(&'static str);
+/// #
+/// # impl list::Item for Fruit {
+/// #     fn filter_value(&self) -> String {
+/// #         self.0.to_string()
+/// #     }
+/// # }
+/// #
+/// # impl list::DefaultItem for Fruit {
+/// #     fn title(&self) -> String {
+/// #         self.0.to_string()
+/// #     }
+/// #     fn description(&self) -> String {
+/// #         String::new()
+/// #     }
+/// # }
+/// #
+/// # fn fruits() -> list::Model<Fruit, list::DefaultDelegate> {
+/// #     let items = vec![Fruit("apple"), Fruit("banana"), Fruit("cherry")];
+/// #     list::Model::new(items, list::DefaultDelegate::new(), 30, 14)
+/// # }
+///
+/// let key = |c| tea::Msg::KeyPress(tea::Key::char(c));
+/// let mut l = fruits();
+/// assert!(l.key_map.cursor_down.matches(&tea::Key::char('j')));
+/// l.key_map.cursor_down.set_keys(&["n"]);
+/// let _ = l.update(&key('j'));
+/// assert_eq!(l.index(), 0);
+/// let _ = l.update(&key('n'));
+/// assert_eq!(l.index(), 1);
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyMap {
     /// The item above.

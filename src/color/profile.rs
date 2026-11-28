@@ -16,6 +16,21 @@ use std::fmt;
 /// becomes the nearest of the 256 or 16 palette colours, and with
 /// [`Ascii`](ColorProfile::Ascii) (as `NO_COLOR` asks) colours go but
 /// bold, italic, underline and the rest stay.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::{ColorProfile, Environment};
+///
+/// let env: Environment = [("TERM", "xterm-256color"), ("COLORTERM", "truecolor")]
+///     .into_iter()
+///     .collect();
+/// assert_eq!(ColorProfile::detect(true, &env), ColorProfile::TrueColor);
+/// let plain: Environment = [("TERM", "xterm"), ("NO_COLOR", "1")].into_iter().collect();
+/// assert_eq!(ColorProfile::detect(true, &plain), ColorProfile::Ascii);
+/// assert_eq!(ColorProfile::detect(false, &plain), ColorProfile::NoTty);
+/// assert!(ColorProfile::Ansi256 < ColorProfile::TrueColor);
+/// assert_eq!(ColorProfile::Ansi256.to_string(), "ANSI256");
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ColorProfile {
     /// Not a terminal: no colours, no attributes, no hyperlinks.

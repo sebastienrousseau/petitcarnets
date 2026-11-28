@@ -10,12 +10,48 @@
 //! assert!(t.running());
 //! ```
 
+mod control;
+mod update;
+
 use super::{next_id, now};
-use crate::{Cmd, Msg as TeaMsg, batch};
+use crate::Cmd;
 use std::fmt::Write as _;
 use std::time::Duration;
 
 /// Start or stop a timer: Bubbles' `timer.StartStopMsg`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use std::time::Duration;
+/// use tea::bubbles::timer;
+/// use tea::testing::TestProgram;
+/// # struct App(timer::Model, fn(&timer::Model) -> tea::Cmd<timer::Msg>);
+/// #
+/// # impl tea::Model for App {
+/// #     type Msg = timer::Msg;
+/// #     fn init(&mut self) -> tea::Cmd<timer::Msg> {
+/// #         self.0.init()
+/// #     }
+/// #     fn update(&mut self, msg: tea::Msg<timer::Msg>) -> tea::Cmd<timer::Msg> {
+/// #         match msg {
+/// #             tea::Msg::KeyPress(_) => (self.1)(&self.0),
+/// #             _ => self.0.update(&msg),
+/// #         }
+/// #     }
+/// #     fn view(&self) -> tea::View {
+/// #         tea::View::new(self.0.view())
+/// #     }
+/// # }
+///
+/// // The app starts the timer, then calls `stop` on a key.
+/// let t = timer::Model::new(Duration::from_secs(3));
+/// let mut test = TestProgram::new(App(t, timer::Model::stop), 10, 1);
+/// test.advance(Duration::from_secs(1));
+/// test.press(tea::Key::char('s'));
+/// test.advance(Duration::from_secs(5));
+/// assert!(!test.model().0.running(), "the stop message came");
+/// assert_eq!(test.model().0.view(), "2s");
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct StartStopMsg {
     /// The timer it is for.
@@ -24,6 +60,37 @@ pub struct StartStopMsg {
 }
 
 /// Time for a timer to count down one interval: Bubbles' `timer.TickMsg`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use std::time::Duration;
+/// use tea::bubbles::timer;
+/// use tea::testing::TestProgram;
+/// # struct App(timer::Model, fn(&timer::Model) -> tea::Cmd<timer::Msg>);
+/// #
+/// # impl tea::Model for App {
+/// #     type Msg = timer::Msg;
+/// #     fn init(&mut self) -> tea::Cmd<timer::Msg> {
+/// #         self.0.init()
+/// #     }
+/// #     fn update(&mut self, msg: tea::Msg<timer::Msg>) -> tea::Cmd<timer::Msg> {
+/// #         match msg {
+/// #             tea::Msg::KeyPress(_) => (self.1)(&self.0),
+/// #             _ => self.0.update(&msg),
+/// #         }
+/// #     }
+/// #     fn view(&self) -> tea::View {
+/// #         tea::View::new(self.0.view())
+/// #     }
+/// # }
+///
+/// // The app starts the timer, then calls `stop` on a key.
+/// let t = timer::Model::new(Duration::from_secs(3));
+/// let mut test = TestProgram::new(App(t, timer::Model::stop), 10, 1);
+/// assert_eq!(test.model().0.view(), "3s");
+/// test.advance(Duration::from_secs(1));
+/// assert_eq!(test.model().0.view(), "2s", "a tick came");
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TickMsg {
     /// The timer it is for.
@@ -34,6 +101,39 @@ pub struct TickMsg {
 }
 
 /// A timer ran out: Bubbles' `timer.TimeoutMsg`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use std::time::Duration;
+/// use tea::bubbles::timer;
+/// use tea::testing::TestProgram;
+/// # struct App(timer::Model, Option<timer::TimeoutMsg>);
+/// #
+/// # impl tea::Model for App {
+/// #     type Msg = timer::Msg;
+/// #     fn init(&mut self) -> tea::Cmd<timer::Msg> {
+/// #         self.0.init()
+/// #     }
+/// #     fn update(&mut self, msg: tea::Msg<timer::Msg>) -> tea::Cmd<timer::Msg> {
+/// #         if let tea::Msg::App(timer::Msg::Timeout(out)) = msg {
+/// #             self.1 = Some(out);
+/// #             return tea::quit();
+/// #         }
+/// #         self.0.update(&msg)
+/// #     }
+/// #     fn view(&self) -> tea::View {
+/// #         tea::View::new(self.0.view())
+/// #     }
+/// # }
+///
+/// // The app quits when its timer runs out.
+/// let t = timer::Model::new(Duration::from_secs(3));
+/// let id = t.id();
+/// let mut test = TestProgram::new(App(t, None), 10, 1);
+/// assert!(test.wait_finished(Duration::from_secs(5)));
+/// assert_eq!(test.elapsed(), Duration::from_secs(3));
+/// assert_eq!(test.final_model().1, Some(timer::TimeoutMsg { id }));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TimeoutMsg {
     /// The timer that ran out.
@@ -41,6 +141,40 @@ pub struct TimeoutMsg {
 }
 
 /// A timer's messages.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use std::time::Duration;
+/// use tea::bubbles::timer;
+/// use tea::testing::TestProgram;
+/// # struct App(timer::Model, Option<timer::TimeoutMsg>);
+/// #
+/// # impl tea::Model for App {
+/// #     type Msg = timer::Msg;
+/// #     fn init(&mut self) -> tea::Cmd<timer::Msg> {
+/// #         self.0.init()
+/// #     }
+/// #     fn update(&mut self, msg: tea::Msg<timer::Msg>) -> tea::Cmd<timer::Msg> {
+/// #         if let tea::Msg::App(timer::Msg::Timeout(out)) = msg {
+/// #             self.1 = Some(out);
+/// #             return tea::quit();
+/// #         }
+/// #         self.0.update(&msg)
+/// #     }
+/// #     fn view(&self) -> tea::View {
+/// #         tea::View::new(self.0.view())
+/// #     }
+/// # }
+///
+/// // The app quits when its timer runs out.
+/// let t = timer::Model::new(Duration::from_secs(3));
+/// let id = t.id();
+/// let mut test = TestProgram::new(App(t, None), 10, 1);
+/// assert!(test.wait_finished(Duration::from_secs(5)));
+/// assert_eq!(test.elapsed(), Duration::from_secs(3));
+/// let out = test.final_model().1.map(timer::Msg::Timeout);
+/// assert_eq!(out, Some(timer::Msg::Timeout(timer::TimeoutMsg { id })));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Msg {
     /// Start or stop.
@@ -52,6 +186,37 @@ pub enum Msg {
 }
 
 /// A countdown: Bubbles' `timer.Model`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use std::time::Duration;
+/// use tea::bubbles::timer;
+/// use tea::testing::TestProgram;
+/// # struct App(timer::Model, fn(&timer::Model) -> tea::Cmd<timer::Msg>);
+/// #
+/// # impl tea::Model for App {
+/// #     type Msg = timer::Msg;
+/// #     fn init(&mut self) -> tea::Cmd<timer::Msg> {
+/// #         self.0.init()
+/// #     }
+/// #     fn update(&mut self, msg: tea::Msg<timer::Msg>) -> tea::Cmd<timer::Msg> {
+/// #         match msg {
+/// #             tea::Msg::KeyPress(_) => (self.1)(&self.0),
+/// #             _ => self.0.update(&msg),
+/// #         }
+/// #     }
+/// #     fn view(&self) -> tea::View {
+/// #         tea::View::new(self.0.view())
+/// #     }
+/// # }
+///
+/// // The app starts the timer, then calls `stop` on a key.
+/// let t = timer::Model::new(Duration::from_secs(90));
+/// let mut test = TestProgram::new(App(t, timer::Model::stop), 10, 1);
+/// assert_eq!(test.model().0.view(), "1m30s");
+/// test.advance(Duration::from_secs(31));
+/// assert_eq!(test.model().0.view(), "59s");
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Model {
     /// The time left. Unlike Go's, it stops at zero rather than going
@@ -66,6 +231,16 @@ pub struct Model {
 
 impl Model {
     /// A running timer for `timeout`, ticking every second: `timer.New`.
+    ///
+    /// ```
+    /// use petitcarnets::bubbles::timer;
+    /// use std::time::Duration;
+    ///
+    /// let t = timer::Model::new(Duration::from_secs(5));
+    /// assert_eq!(t.timeout, Duration::from_secs(5));
+    /// assert_eq!(t.interval, Duration::from_secs(1));
+    /// assert!(t.running());
+    /// ```
     #[must_use]
     pub fn new(timeout: Duration) -> Self {
         Self {
@@ -78,6 +253,35 @@ impl Model {
     }
 
     /// Ticking every `interval`: `timer.WithInterval`.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use std::time::Duration;
+    /// use tea::bubbles::timer;
+    /// use tea::testing::TestProgram;
+    /// # struct App(timer::Model, fn(&timer::Model) -> tea::Cmd<timer::Msg>);
+    /// #
+    /// # impl tea::Model for App {
+    /// #     type Msg = timer::Msg;
+    /// #     fn init(&mut self) -> tea::Cmd<timer::Msg> {
+    /// #         self.0.init()
+    /// #     }
+    /// #     fn update(&mut self, msg: tea::Msg<timer::Msg>) -> tea::Cmd<timer::Msg> {
+    /// #         match msg {
+    /// #             tea::Msg::KeyPress(_) => (self.1)(&self.0),
+    /// #             _ => self.0.update(&msg),
+    /// #         }
+    /// #     }
+    /// #     fn view(&self) -> tea::View {
+    /// #         tea::View::new(self.0.view())
+    /// #     }
+    /// # }
+    ///
+    /// let t = timer::Model::new(Duration::from_secs(1)).with_interval(Duration::from_millis(100));
+    /// let mut test = TestProgram::new(App(t, timer::Model::stop), 10, 1);
+    /// test.advance(Duration::from_millis(300));
+    /// assert_eq!(test.model().0.view(), "700ms");
+    /// ```
     #[must_use]
     pub const fn with_interval(mut self, interval: Duration) -> Self {
         self.interval = interval;
@@ -85,118 +289,105 @@ impl Model {
     }
 
     /// The timer's id.
+    ///
+    /// ```
+    /// use petitcarnets::bubbles::timer;
+    /// use std::time::Duration;
+    ///
+    /// let a = timer::Model::new(Duration::from_secs(5));
+    /// let b = timer::Model::new(Duration::from_secs(5));
+    /// assert_ne!(a.id(), b.id());
+    /// ```
     #[must_use]
     pub const fn id(&self) -> u64 {
         self.id
     }
 
     /// Whether it is counting down: started and not run out.
+    ///
+    /// ```
+    /// use petitcarnets::bubbles::timer;
+    /// use std::time::Duration;
+    ///
+    /// assert!(timer::Model::new(Duration::from_secs(5)).running());
+    /// assert!(!timer::Model::new(Duration::ZERO).running(), "it ran out");
+    /// ```
     #[must_use]
     pub const fn running(&self) -> bool {
         self.running && !self.timedout()
     }
 
     /// Whether it has run out.
+    ///
+    /// ```
+    /// use petitcarnets::bubbles::timer;
+    /// use std::time::Duration;
+    ///
+    /// let mut t = timer::Model::new(Duration::from_secs(5));
+    /// assert!(!t.timedout());
+    /// t.timeout = Duration::ZERO;
+    /// assert!(t.timedout());
+    /// ```
     #[must_use]
     pub const fn timedout(&self) -> bool {
         self.timeout.is_zero()
     }
 
     /// The first tick: Go's `Init`.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use std::time::Duration;
+    /// use tea::bubbles::timer;
+    /// use tea::testing::TestProgram;
+    /// # struct App(timer::Model, fn(&timer::Model) -> tea::Cmd<timer::Msg>);
+    /// #
+    /// # impl tea::Model for App {
+    /// #     type Msg = timer::Msg;
+    /// #     fn init(&mut self) -> tea::Cmd<timer::Msg> {
+    /// #         self.0.init()
+    /// #     }
+    /// #     fn update(&mut self, msg: tea::Msg<timer::Msg>) -> tea::Cmd<timer::Msg> {
+    /// #         match msg {
+    /// #             tea::Msg::KeyPress(_) => (self.1)(&self.0),
+    /// #             _ => self.0.update(&msg),
+    /// #         }
+    /// #     }
+    /// #     fn view(&self) -> tea::View {
+    /// #         tea::View::new(self.0.view())
+    /// #     }
+    /// # }
+    ///
+    /// // The app starts the timer, then calls `stop` on a key.
+    /// let t = timer::Model::new(Duration::from_secs(3));
+    /// let mut test = TestProgram::new(App(t, timer::Model::stop), 10, 1);
+    /// test.advance(Duration::from_secs(2));
+    /// assert_eq!(test.model().0.view(), "1s");
+    /// ```
     #[must_use]
     pub fn init(&self) -> Cmd<Msg> {
         self.tick()
     }
 
-    /// Starts, stops and counts down on its own messages.
-    pub fn update(&mut self, msg: &TeaMsg<Msg>) -> Cmd<Msg> {
-        match msg {
-            TeaMsg::App(Msg::StartStop(m)) if self.is_mine(m.id) => self.start_or_stop(m.running),
-            TeaMsg::App(Msg::Tick(m)) if self.running() && self.is_mine(m.id) => {
-                self.on_tick(m.tag)
-            }
-            _ => Cmd::none(),
-        }
-    }
-
-    /// Whether a message for timer `id` is this one's: its own, or 0 for
-    /// every timer.
-    const fn is_mine(&self, id: u64) -> bool {
-        id == 0 || id == self.id
-    }
-
-    /// Starts or stops; a start ticks again.
-    fn start_or_stop(&mut self, running: bool) -> Cmd<Msg> {
-        if self.running == running {
-            return Cmd::none();
-        }
-        self.running = running;
-        if running { self.tick() } else { Cmd::none() }
-    }
-
-    /// Its tick `tag`: counts down an interval, ticks again, and says
-    /// when it ran out.
-    fn on_tick(&mut self, tag: u64) -> Cmd<Msg> {
-        if tag > 0 && tag != self.tag {
-            return Cmd::none();
-        }
-        self.timeout = self.timeout.saturating_sub(self.interval);
-        self.tag += 1;
-        batch([self.tick(), self.timed_out()])
-    }
-
     /// The time left, as Go writes a duration (`"4.5s"`, `"1m0s"`).
+    ///
+    /// ```
+    /// use petitcarnets::bubbles::timer;
+    /// use std::time::Duration;
+    ///
+    /// assert_eq!(
+    ///     timer::Model::new(Duration::from_millis(4500)).view(),
+    ///     "4.5s"
+    /// );
+    /// assert_eq!(timer::Model::new(Duration::from_secs(60)).view(), "1m0s");
+    /// assert_eq!(
+    ///     timer::Model::new(Duration::from_secs(3600)).view(),
+    ///     "1h0m0s"
+    /// );
+    /// ```
     #[must_use]
     pub fn view(&self) -> String {
         go_duration(self.timeout)
-    }
-
-    /// Starts it again.
-    #[must_use]
-    pub fn start(&self) -> Cmd<Msg> {
-        self.start_stop(true)
-    }
-
-    /// Stops it.
-    #[must_use]
-    pub fn stop(&self) -> Cmd<Msg> {
-        self.start_stop(false)
-    }
-
-    /// Starts it if stopped, stops it if running.
-    #[must_use]
-    pub fn toggle(&self) -> Cmd<Msg> {
-        self.start_stop(!self.running())
-    }
-
-    /// The next tick.
-    fn tick(&self) -> Cmd<Msg> {
-        let msg = TickMsg {
-            id: self.id,
-            timeout: self.timedout(),
-            tag: self.tag,
-        };
-        crate::tick(self.interval, move |_| Msg::Tick(msg))
-    }
-
-    /// The timeout message, once run out.
-    fn timed_out(&self) -> Cmd<Msg> {
-        if self.timedout() {
-            now(Msg::Timeout(TimeoutMsg { id: self.id }))
-        } else {
-            Cmd::none()
-        }
-    }
-
-    /// A start or stop message; a timer that ran out does not start.
-    fn start_stop(&self, running: bool) -> Cmd<Msg> {
-        if running && self.timedout() {
-            return Cmd::none();
-        }
-        now(Msg::StartStop(StartStopMsg {
-            id: self.id,
-            running,
-        }))
     }
 }
 

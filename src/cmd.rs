@@ -217,9 +217,25 @@ pub const fn clear_screen<M>() -> Cmd<M> {
 ///
 /// ```
 /// use petitcarnets as tea;
+/// use tea::testing::TestProgram;
 ///
-/// let done: tea::Cmd<()> = tea::printf!("{} packages installed", 3);
-/// # let _ = done;
+/// struct Installer;
+///
+/// impl tea::Model for Installer {
+///     type Msg = ();
+///     fn init(&mut self) -> tea::Cmd<()> {
+///         tea::printf!("{} packages installed", 3)
+///     }
+///     fn update(&mut self, _: tea::Msg<()>) -> tea::Cmd<()> {
+///         tea::Cmd::none()
+///     }
+///     fn view(&self) -> tea::View {
+///         "done".into()
+///     }
+/// }
+///
+/// let test = TestProgram::new(Installer, 30, 3);
+/// assert_eq!(test.screen().text(), "3 packages installed\ndone");
 /// ```
 #[macro_export]
 macro_rules! printf {

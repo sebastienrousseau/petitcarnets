@@ -13,6 +13,15 @@ use crate::view::{ProgressBar, ProgressBarState};
 /// A terminal mode a program can turn on and off. Bubble Tea turns them
 /// on and off from each [`View`](crate::View)'s fields; a
 /// [`Backend`](crate::Backend) writes them.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::TerminalMode;
+///
+/// assert_eq!(TerminalMode::AltScreen.sequence(true), b"\x1b[?1049h");
+/// assert_eq!(TerminalMode::AltScreen.sequence(false), b"\x1b[?1049l");
+/// assert_eq!(TerminalMode::CursorStyle(5).sequence(true), b"\x1b[5 q");
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum TerminalMode {
@@ -152,6 +161,19 @@ fn osc_colour(n: u8, c: Rgb) -> Vec<u8> {
 /// `KeyboardEnhancements`: where Go sets a field, as in
 /// `KeyboardEnhancements{ReportEventTypes: true}`, chain the method of
 /// the same name, as in `KeyboardEnhancements::new().report_event_types()`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::{KeyboardEnhancements, TerminalMode};
+///
+/// let keys = KeyboardEnhancements::new()
+///     .report_event_types()
+///     .report_alternate_keys();
+/// assert_eq!(keys.flags(), 1 | 2 | 4);
+/// assert_eq!(KeyboardEnhancements::default().flags(), 1);
+/// let mode = TerminalMode::KeyboardEnhancements(keys.flags());
+/// assert_eq!(mode.sequence(true), b"\x1b[>4;2m\x1b[>7u");
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct KeyboardEnhancements(u8);
 
@@ -207,6 +229,17 @@ impl KeyboardEnhancements {
 
 /// The terminal's reply about its keyboard enhancements. Bubble Tea's
 /// `KeyboardEnhancementsMsg`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::KeyboardEnhancementsReport;
+///
+/// let report = KeyboardEnhancementsReport { flags: 1 | 2 };
+/// assert!(report.supports_key_disambiguation());
+/// assert!(report.supports_event_types());
+/// assert!(!report.supports_alternate_keys());
+/// assert!(!KeyboardEnhancementsReport { flags: -1 }.supports_key_disambiguation());
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct KeyboardEnhancementsReport {
     /// The kitty protocol flags in force; -1 when the reply had none.
@@ -247,6 +280,37 @@ impl KeyboardEnhancementsReport {
 
 /// A mode a terminal reported on: a DEC private mode (`CSI ? n $ y`) or
 /// an ANSI one.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::testing::TestProgram;
+/// use tea::{ModeSetting, ReportedMode};
+///
+/// /// Keeps every message it gets.
+/// struct Log(Vec<tea::Msg<()>>);
+///
+/// impl tea::Model for Log {
+///     type Msg = ();
+///
+///     fn update(&mut self, msg: tea::Msg<()>) -> tea::Cmd<()> {
+///         self.0.push(msg);
+///         tea::Cmd::none()
+///     }
+/// #
+/// #     fn view(&self) -> tea::View {
+/// #         tea::View::default()
+/// #     }
+/// }
+///
+/// let mut test = TestProgram::new(Log(Vec::new()), 20, 1);
+/// // The terminal says bracketed paste (DEC mode 2004) is on.
+/// test.bytes("\x1b[?2004;1$y");
+/// let report = tea::Msg::ModeReport {
+///     mode: ReportedMode::Dec(2004),
+///     value: ModeSetting::Set,
+/// };
+/// assert_eq!(test.model().0.last(), Some(&report));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ReportedMode {
     /// A DEC private mode, such as 2004 for bracketed paste.
@@ -256,6 +320,15 @@ pub enum ReportedMode {
 }
 
 /// What a terminal says about a mode. Go's `ansi.ModeSetting`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::ModeSetting;
+///
+/// assert_eq!(ModeSetting::from(1), ModeSetting::Set);
+/// assert_eq!(ModeSetting::from(9), ModeSetting::Other(9));
+/// assert_eq!(u8::from(ModeSetting::PermanentlyReset), 4);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ModeSetting {
     /// The terminal does not know the mode.

@@ -206,12 +206,31 @@ pub trait Backend {
 /// use petitcarnets::testing::TestBackend;
 /// use petitcarnets::Key;
 ///
+/// struct Ups(u32);
+///
+/// impl petitcarnets::Model for Ups {
+///     type Msg = ();
+///     fn update(&mut self, msg: petitcarnets::Msg<()>) -> petitcarnets::Cmd<()> {
+///         match msg {
+///             petitcarnets::Msg::KeyPress(k) if k == "up" => self.0 += 1,
+///             petitcarnets::Msg::KeyPress(k) if k == "q" => return petitcarnets::quit(),
+///             _ => {}
+///         }
+///         petitcarnets::Cmd::none()
+///     }
+///     fn view(&self) -> petitcarnets::View {
+///         format!("ups: {}", self.0).into()
+///     }
+/// }
+///
 /// let backend = TestBackend::new(40, 10)
 ///     .bytes(b"\x1b[A")
 ///     .keys([Key::char('q')]);
 /// let screen = backend.screen();
-/// // ... run a Program with `backend`, then read `screen.text()`.
-/// # let _ = screen;
+/// let ups = petitcarnets::Program::new(Ups(0)).run_with(backend).unwrap();
+/// assert_eq!(ups.0, 1);
+/// // What was written, as text: the first frame, then the changed cell.
+/// assert_eq!(screen.text(), "\rups: 01\r\n");
 /// ```
 #[derive(Debug, Clone)]
 pub struct TestBackend {

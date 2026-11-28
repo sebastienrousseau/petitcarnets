@@ -15,11 +15,31 @@ use std::time::Instant;
 /// real terminal, and the replies it gives to queries.
 ///
 /// ```
-/// use petitcarnets::testing::TestTerminal;
+/// use petitcarnets as tea;
+/// use tea::testing::{TestProgram, TestTerminal};
+///
+/// struct Where(Option<(i32, i32)>);
+///
+/// impl tea::Model for Where {
+///     type Msg = ();
+///     fn init(&mut self) -> tea::Cmd<()> {
+///         tea::request_cursor_position()
+///     }
+///     fn update(&mut self, msg: tea::Msg<()>) -> tea::Cmd<()> {
+///         if let tea::Msg::CursorPosition { x, y } = msg {
+///             self.0 = Some((x, y));
+///         }
+///         tea::Cmd::none()
+///     }
+///     fn view(&self) -> tea::View {
+///         tea::View::default()
+///     }
+/// }
 ///
 /// // Answers a cursor position request at once, as a fast terminal would.
 /// let terminal = TestTerminal::new(40, 10).reply("\x1b[6n", "\x1b[3;7R");
-/// # let _ = terminal;
+/// let test = TestProgram::with_terminal(tea::Program::new(Where(None)), terminal);
+/// assert_eq!(test.model().0, Some((6, 2)), "from 0, as Bubble Tea reports it");
 /// ```
 #[derive(Debug, Clone)]
 pub struct TestTerminal {

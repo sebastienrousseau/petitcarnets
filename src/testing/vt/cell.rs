@@ -4,6 +4,21 @@ use crate::renderer::cell::{Cell, Pen};
 
 /// One cell of a [`Vt`](super::Vt)'s screen: what it shows, how wide it
 /// is, its style and its hyperlink.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::testing::Vt;
+///
+/// let mut vt = Vt::new(10, 1);
+/// vt.feed("\x1b[1m日\x1b[0mx".as_bytes());
+/// let wide = vt.cell(0, 0).unwrap();
+/// assert_eq!(
+///     (wide.text(), wide.width(), wide.style()),
+///     ("日".to_string(), 2, "\x1b[1m".to_string())
+/// );
+/// assert!(vt.cell(1, 0).unwrap().is_continuation());
+/// assert_eq!(vt.cell(2, 0).unwrap().link(), None);
+/// ```
 #[derive(Debug, Clone, Copy)]
 pub struct ScreenCell<'a>(&'a Cell);
 

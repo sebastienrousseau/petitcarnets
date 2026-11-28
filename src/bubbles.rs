@@ -84,7 +84,11 @@
 //!         format!("{} {}", self.spinner.view(), self.input.view()).into()
 //!     }
 //! }
-//! # let _ = Form { spinner: spinner::Model::new(), input: textinput::Model::new() };
+//!
+//! let form = Form { spinner: spinner::Model::new(), input: textinput::Model::new() };
+//! let mut test = tea::testing::TestProgram::new(form, 30, 1);
+//! test.type_text("hi");
+//! assert!(test.screen().text().ends_with(" > hi"), "the spinner, then the input");
 //! ```
 //!
 //! Components that tick (the spinner, the cursor's blink, the progress

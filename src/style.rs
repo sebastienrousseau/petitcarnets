@@ -2,8 +2,19 @@
 //! styled text, and the few layout tools the components need: padding,
 //! borders, margins, joining blocks side by side or one above another,
 //! wrapping, truncating and cutting by display width.
+//!
+//! ```
+//! use petitcarnets as tea;
+//! use tea::style::{Color, Style};
+//!
+//! let title = Style::new().bold().fg(Color::RED).render("Title");
+//! assert_eq!(tea::style::strip_ansi(&title), "Title");
+//! assert_eq!(tea::style::width(&title), 5);
+//! ```
 
 mod border;
+mod emphasis;
+mod frame;
 mod layout;
 mod render;
 
@@ -15,6 +26,25 @@ pub use layout::{
 pub(crate) use layout::{round_clamped, to_f64};
 
 /// A terminal colour.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::style::{Color, Style};
+///
+/// assert_eq!(Style::new().fg(Color::RED).paint("x"), "\x1b[31mx\x1b[0m");
+/// assert_eq!(
+///     Style::new().fg(Color::Ansi(9)).paint("x"),
+///     "\x1b[91mx\x1b[0m"
+/// );
+/// assert_eq!(
+///     Style::new().bg(Color::Palette(212)).paint("x"),
+///     "\x1b[48;5;212mx\x1b[0m"
+/// );
+/// assert_eq!(
+///     Style::new().fg(Color::Rgb(1, 2, 3)).paint("x"),
+///     "\x1b[38;2;1;2;3mx\x1b[0m"
+/// );
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Color {
     /// One of the 16 standard colours, 0 to 15 (8 to 15 are the bright ones).
@@ -122,6 +152,14 @@ const SIDES_SET: u8 = 1 << 4;
 
 impl Style {
     /// No colour, no emphasis and no box.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::style::Style;
+    ///
+    /// assert_eq!(Style::new(), Style::default());
+    /// assert_eq!(Style::new().render("hi"), "hi");
+    /// ```
     #[must_use]
     pub const fn new() -> Self {
         Self {
@@ -140,215 +178,19 @@ impl Style {
         }
     }
 
-    /// With this text colour.
-    #[must_use]
-    pub const fn fg(mut self, color: Color) -> Self {
-        self.fg = Some(color);
-        self
-    }
-
-    /// With this background colour.
-    #[must_use]
-    pub const fn bg(mut self, color: Color) -> Self {
-        self.bg = Some(color);
-        self
-    }
-
-    /// Bold.
-    #[must_use]
-    pub const fn bold(self) -> Self {
-        self.with(BOLD)
-    }
-
-    /// Dimmed.
-    #[must_use]
-    pub const fn dim(self) -> Self {
-        self.with(DIM)
-    }
-
-    /// Italic.
-    #[must_use]
-    pub const fn italic(self) -> Self {
-        self.with(ITALIC)
-    }
-
-    /// Underlined.
-    #[must_use]
-    pub const fn underline(self) -> Self {
-        self.with(UNDERLINE)
-    }
-
-    /// Foreground and background swapped.
-    #[must_use]
-    pub const fn reverse(self) -> Self {
-        self.with(REVERSE)
-    }
-
-    /// With an attribute bit set.
-    const fn with(mut self, bit: u8) -> Self {
-        self.attributes |= bit;
-        self
-    }
-
-    /// This style with the colours and emphasis of `other` that this one
-    /// does not set: Lip Gloss's `Inherit`. The box is not inherited.
-    #[must_use]
-    pub const fn inherit(mut self, other: Self) -> Self {
-        if self.fg.is_none() {
-            self.fg = other.fg;
-        }
-        if self.bg.is_none() {
-            self.bg = other.bg;
-        }
-        self.attributes |= other.attributes;
-        self
-    }
-
-    /// The same colours and emphasis, without padding, border, margins
-    /// or size.
-    #[must_use]
-    pub const fn plain(mut self) -> Self {
-        self.frame = Self::new().frame;
-        self
-    }
-
-    /// Padding: `vertical` blank lines above and below, `horizontal`
-    /// columns left and right, in the background colour. Lip Gloss's
-    /// `Padding(vertical, horizontal)`.
-    #[must_use]
-    pub const fn padding(mut self, vertical: u16, horizontal: u16) -> Self {
-        self.frame.padding = [vertical, horizontal, vertical, horizontal];
-        self
-    }
-
-    /// Padding on each side: top, right, bottom, left, as CSS orders them.
-    #[must_use]
-    pub const fn padding_sides(mut self, top: u16, right: u16, bottom: u16, left: u16) -> Self {
-        self.frame.padding = [top, right, bottom, left];
-        self
-    }
-
-    /// Padding on the left only changed.
-    #[must_use]
-    pub const fn padding_left(mut self, columns: u16) -> Self {
-        self.frame.padding[3] = columns;
-        self
-    }
-
-    /// Margins: blank space outside the border, `vertical` lines above
-    /// and below and `horizontal` columns left and right.
-    #[must_use]
-    pub const fn margin(mut self, vertical: u16, horizontal: u16) -> Self {
-        self.frame.margin = [vertical, horizontal, vertical, horizontal];
-        self
-    }
-
-    /// Margins on each side: top, right, bottom, left.
-    #[must_use]
-    pub const fn margin_sides(mut self, top: u16, right: u16, bottom: u16, left: u16) -> Self {
-        self.frame.margin = [top, right, bottom, left];
-        self
-    }
-
-    /// The top margin only changed.
-    #[must_use]
-    pub const fn margin_top(mut self, rows: u16) -> Self {
-        self.frame.margin[0] = rows;
-        self
-    }
-
-    /// The top margin's rows.
-    #[must_use]
-    pub fn get_margin_top(&self) -> usize {
-        usize::from(self.frame.margin[0])
-    }
-
-    /// A border on every side, unless [`Style::border_sides`] picks some.
-    #[must_use]
-    pub const fn border(mut self, border: Border) -> Self {
-        self.frame.border = Some(border);
-        self
-    }
-
-    /// Which sides have the border: top, right, bottom, left, as Lip
-    /// Gloss's `Border(border, top, right, bottom, left)` sets them.
-    #[must_use]
-    pub fn border_sides(mut self, [top, right, bottom, left]: [bool; 4]) -> Self {
-        let bit = |on: bool, n: u8| u8::from(on) << n;
-        self.frame.sides = SIDES_SET | bit(top, 0) | bit(right, 1) | bit(bottom, 2) | bit(left, 3);
-        self
-    }
-
-    /// The border's colour.
-    #[must_use]
-    pub const fn border_fg(mut self, color: Color) -> Self {
-        self.frame.border_fg = Some(color);
-        self
-    }
-
-    /// At least `columns` wide, border included; longer lines are
-    /// wrapped at the width less the padding, as Lip Gloss's `Width`.
-    /// 0 is no width.
-    #[must_use]
-    pub const fn width(mut self, columns: u16) -> Self {
-        self.frame.width = columns;
-        self
-    }
-
-    /// At least `rows` high, border included; blank lines are added
-    /// below. 0 is no height.
-    #[must_use]
-    pub const fn height(mut self, rows: u16) -> Self {
-        self.frame.height = rows;
-        self
-    }
-
-    /// The padding's columns on the left.
-    #[must_use]
-    pub fn get_padding_left(&self) -> usize {
-        usize::from(self.frame.padding[3])
-    }
-
-    /// The padding's columns on the right.
-    #[must_use]
-    pub fn get_padding_right(&self) -> usize {
-        usize::from(self.frame.padding[1])
-    }
-
-    /// The columns padding, border and margins take, left and right
-    /// together: Lip Gloss's `GetHorizontalFrameSize`.
-    #[must_use]
-    pub fn horizontal_frame(&self) -> usize {
-        let [_, right, _, left] = self.frame.padding;
-        let [_, m_right, _, m_left] = self.frame.margin;
-        let [_, b_right, _, b_left] = self.border_widths();
-        usize::from(right + left + m_right + m_left) + b_right + b_left
-    }
-
-    /// The columns left of the content and the rows above it that
-    /// margins, border and padding take: where a block's text starts.
-    #[must_use]
-    pub fn frame_offset(&self) -> (usize, usize) {
-        let [top, _, _, left] = self.frame.padding;
-        let [m_top, _, _, m_left] = self.frame.margin;
-        let [b_top, _, _, b_left] = self.border_widths();
-        (
-            usize::from(left + m_left) + b_left,
-            usize::from(top + m_top) + b_top,
-        )
-    }
-
-    /// The rows padding, border and margins take, above and below.
-    #[must_use]
-    pub fn vertical_frame(&self) -> usize {
-        let [top, _, bottom, _] = self.frame.padding;
-        let [m_top, _, m_bottom, _] = self.frame.margin;
-        let [b_top, _, b_bottom, _] = self.border_widths();
-        usize::from(top + bottom + m_top + m_bottom) + b_top + b_bottom
-    }
-
     /// `text` in this style, reset after it, as one run: for text on one
     /// line. A plain style returns the text unchanged.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::style::{Color, Style};
+    ///
+    /// assert_eq!(
+    ///     Style::new().bold().fg(Color::GREEN).paint("ok"),
+    ///     "\x1b[1;32mok\x1b[0m"
+    /// );
+    /// assert_eq!(Style::new().paint("ok"), "ok");
+    /// ```
     #[must_use]
     pub fn paint(&self, text: &str) -> String {
         let codes = self.codes();
@@ -384,6 +226,14 @@ static GRAPHEME_WIDTH: AtomicBool = AtomicBool::new(false);
 /// program chose, [`WidthMethod::WcWidth`] unless the terminal reported
 /// that it supports grapheme clusters (mode 2027). One process has one
 /// terminal, so the choice is shared by the whole process.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::style::WidthMethod;
+///
+/// // No program has asked the terminal, so code points are measured alone.
+/// assert_eq!(tea::style::width_method(), WidthMethod::WcWidth);
+/// ```
 #[must_use]
 pub fn width_method() -> WidthMethod {
     if GRAPHEME_WIDTH.load(Ordering::Relaxed) {
@@ -401,12 +251,30 @@ pub(crate) fn set_width_method(method: WidthMethod) {
 /// The number of terminal cells `text` takes, without its escape
 /// sequences, measured with [`width_method`]: wide characters (CJK, most
 /// emoji) take two.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::style::{Style, width};
+///
+/// assert_eq!(width("hello"), 5);
+/// assert_eq!(width("日本"), 4);
+/// assert_eq!(width(&Style::new().bold().paint("hi")), 2);
+/// ```
 #[must_use]
 pub fn width(text: &str) -> usize {
     width_method().string_width(text)
 }
 
 /// `text` without its ANSI escape sequences.
+///
+/// ```
+/// use petitcarnets as tea;
+///
+/// assert_eq!(
+///     tea::style::strip_ansi("\x1b[1mbold\x1b[0m text"),
+///     "bold text"
+/// );
+/// ```
 #[must_use]
 pub fn strip_ansi(text: &str) -> String {
     spans(text, WidthMethod::WcWidth)
@@ -418,6 +286,15 @@ pub fn strip_ansi(text: &str) -> String {
 /// The first `columns` cells of `text`, measured with [`width_method`],
 /// keeping its escape sequences, with a reset at the end if any text was
 /// cut. A wide character that would cross the limit is left out whole.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::style::truncate;
+///
+/// assert_eq!(truncate("hi", 5), "hi");
+/// assert_eq!(truncate("hello", 3), "hel\x1b[0m");
+/// assert_eq!(truncate("日本語", 3), "日\x1b[0m");
+/// ```
 #[must_use]
 pub fn truncate(text: &str, columns: usize) -> String {
     let method = width_method();

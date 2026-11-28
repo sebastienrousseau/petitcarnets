@@ -4,6 +4,16 @@ use crate::key::KeyMod;
 use std::fmt;
 
 /// A mouse button, as X11 numbers them. Bubble Tea's `MouseButton`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::MouseButton;
+///
+/// assert_eq!(MouseButton::Left.name(), "left");
+/// assert_eq!(MouseButton::WheelUp.to_string(), "wheelup");
+/// assert!(MouseButton::WheelUp.is_wheel());
+/// assert!(!MouseButton::Right.is_wheel());
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum MouseButton {
     /// No button: motion with nothing held, or a release in the X10
@@ -82,6 +92,21 @@ impl fmt::Display for MouseButton {
 /// Where the mouse was and what was held: Bubble Tea's `Mouse`. The
 /// message it comes in says whether it is a click, a release, a wheel
 /// turn or motion.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::{KeyMod, Mouse, MouseButton};
+///
+/// let mouse = Mouse {
+///     x: 3,
+///     y: 1,
+///     button: MouseButton::Left,
+///     mods: KeyMod::CTRL,
+/// };
+/// assert_eq!(mouse.to_string(), "ctrl+left");
+/// assert_eq!(mouse.motion_string(), "ctrl+left+motion");
+/// assert_eq!(Mouse::default().motion_string(), "motion");
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Mouse {
     /// The column, from 0 at the left.
@@ -130,6 +155,41 @@ impl fmt::Display for Mouse {
 
 /// Which mouse events a view asks the terminal for. Bubble Tea's
 /// `MouseMode`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::testing::TestProgram;
+/// use tea::{Mouse, MouseButton, MouseMode};
+///
+/// struct Clicks(Vec<Mouse>);
+///
+/// impl tea::Model for Clicks {
+///     type Msg = ();
+///
+///     fn update(&mut self, msg: tea::Msg<()>) -> tea::Cmd<()> {
+///         if let tea::Msg::MouseClick(mouse) = msg {
+///             self.0.push(mouse);
+///         }
+///         tea::Cmd::none()
+///     }
+///
+///     fn view(&self) -> tea::View {
+///         tea::View::new("click me").with_mouse_mode(MouseMode::CellMotion)
+///     }
+/// }
+///
+/// let mut test = TestProgram::new(Clicks(Vec::new()), 20, 2);
+/// assert!(test.screen().mode(1002));
+/// // A left click at column 4, row 2 (SGR, from 1).
+/// test.bytes("\x1b[<0;4;2M");
+/// let click = Mouse {
+///     x: 3,
+///     y: 1,
+///     button: MouseButton::Left,
+///     ..Mouse::default()
+/// };
+/// assert_eq!(test.model().0, [click]);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum MouseMode {
     /// No mouse events (the default).

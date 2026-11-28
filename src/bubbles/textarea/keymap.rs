@@ -3,6 +3,18 @@
 use crate::bubbles::key::Binding;
 
 /// The keys of a text area: Bubbles' `textarea.KeyMap`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::bubbles::textarea;
+///
+/// let keys = textarea::KeyMap::default();
+/// assert!(
+///     keys.insert_newline
+///         .matches(&tea::Key::new(tea::KeyCode::Enter))
+/// );
+/// assert_eq!(keys.select_all.help().desc, "select all");
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyMap {
     /// One character left.

@@ -5,6 +5,16 @@
 /// `uv.Environ`: give one to [`Program::with_environment`](crate::Program::with_environment)
 /// to detect colours and terminal features from another environment
 /// than the process's, as a server does for each SSH client.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::Environment;
+///
+/// let env: Environment = [("TERM", "xterm"), ("TERM", "kitty")].into_iter().collect();
+/// assert_eq!(env.get("TERM"), Some("kitty"));
+/// assert_eq!(env.get("COLORTERM"), None);
+/// assert_eq!(env.var("COLORTERM"), "");
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Environment(Vec<(String, String)>);
 

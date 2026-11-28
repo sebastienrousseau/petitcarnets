@@ -1,4 +1,5 @@
 use super::*;
+use crate::Msg as TeaMsg;
 
 fn tick_of(t: &Model) -> TeaMsg<Msg> {
     TeaMsg::App(Msg::Tick(TickMsg {

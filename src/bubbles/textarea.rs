@@ -16,10 +16,12 @@
 //! ```
 
 mod edit;
+mod focus;
 mod keymap;
 mod nav;
 mod select;
 mod style;
+mod value;
 mod view;
 mod words;
 
@@ -29,7 +31,7 @@ pub use style::{CursorStyle, StyleState, Styles};
 
 use super::cursor::{self, Mode};
 use super::{Flags, viewport};
-use crate::style::{Border, Style, width};
+use crate::style::{Border, Style};
 use crate::{Cmd, Msg as TeaMsg, batch};
 
 /// A text area's messages: its cursor's blinks.
@@ -44,6 +46,21 @@ const DEFAULT_MAX_WIDTH: usize = 500;
 const MAX_LINES: usize = 10_000;
 
 /// What a prompt function is told: Bubbles' `textarea.PromptInfo`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::bubbles::textarea;
+///
+/// let mut area = textarea::Model::new();
+/// area.show_line_numbers = false;
+/// area.set_prompt_func(2, |info: textarea::PromptInfo| {
+///     format!("{} ", info.line_number)
+/// });
+/// area.set_value("a\nb");
+/// let view = tea::style::strip_ansi(&area.view());
+/// let lines: Vec<&str> = view.lines().collect();
+/// assert!(lines[0].starts_with("0 a") && lines[1].starts_with("1 b"));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PromptInfo {
     /// The screen line, from 0.
@@ -54,6 +71,23 @@ pub struct PromptInfo {
 
 /// Where the cursor is within its soft wrapped line: Bubbles'
 /// `textarea.LineInfo`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::bubbles::textarea;
+///
+/// let mut area = textarea::Model::new();
+/// area.show_line_numbers = false;
+/// area.set_width(12);
+/// area.set_value("hello world");
+/// let info = area.line_info();
+/// assert_eq!(
+///     (info.height, info.row_offset),
+///     (2, 1),
+///     "on the second of two"
+/// );
+/// assert_eq!(info.column_offset, 5);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct LineInfo {
     /// Characters in the wrapped line the cursor is on.
@@ -84,6 +118,17 @@ const SELECTING: u16 = 1 << 3;
 const PASTE_PENDING: u16 = 1 << 4;
 
 /// A text area: Bubbles' `textarea.Model`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::bubbles::textarea;
+///
+/// let mut area = textarea::Model::new();
+/// area.show_line_numbers = false;
+/// area.placeholder = "Say something".into();
+/// let first = tea::style::strip_ansi(&area.view());
+/// assert!(first.starts_with("┃ Say something"));
+/// ```
 #[derive(Debug, Clone)]
 pub struct Model {
     /// The last error, if any.
@@ -136,6 +181,20 @@ impl Default for Model {
 impl Model {
     /// An empty, blurred text area, 40 by 6, with line numbers and the
     /// prompt `"┃ "`: `textarea.New`.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::textarea;
+    ///
+    /// let area = textarea::Model::new();
+    /// assert_eq!(area.prompt, "┃ ");
+    /// assert_eq!(
+    ///     (area.width(), area.height()),
+    ///     (34, 6),
+    ///     "40 wide, less the gutter"
+    /// );
+    /// assert!(area.show_line_numbers && !area.focused());
+    /// ```
     #[must_use]
     pub fn new() -> Self {
         let mut vp = viewport::Model::new(0, 0);
@@ -175,12 +234,31 @@ impl Model {
     }
 
     /// The styles.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::textarea;
+    ///
+    /// let area = textarea::Model::new();
+    /// assert_eq!(area.styles(), textarea::Styles::new(true));
+    /// ```
     #[must_use]
     pub const fn styles(&self) -> Styles {
         self.styles
     }
 
     /// Replaces the styles.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::textarea;
+    ///
+    /// let mut styles = textarea::Styles::new(false);
+    /// styles.focused.prompt = tea::style::Style::new().bold();
+    /// let mut area = textarea::Model::new();
+    /// area.set_styles(styles);
+    /// assert_eq!(area.styles(), styles);
+    /// ```
     pub fn set_styles(&mut self, styles: Styles) {
         self.styles = styles;
         self.update_cursor_style();
@@ -188,12 +266,33 @@ impl Model {
 
     /// Whether the cursor is drawn in the view (the default) rather than
     /// being the terminal's own, from [`Model::cursor`].
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::textarea;
+    ///
+    /// let mut area = textarea::Model::new();
+    /// assert!(area.virtual_cursor());
+    /// area.set_virtual_cursor(false);
+    /// assert!(!area.virtual_cursor());
+    /// ```
     #[must_use]
     pub const fn virtual_cursor(&self) -> bool {
         self.flags.get(USE_VIRTUAL_CURSOR)
     }
 
     /// Draws the cursor in the view, or leaves it to the terminal.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::textarea;
+    ///
+    /// let mut area = textarea::Model::new();
+    /// let _ = area.focus();
+    /// assert_eq!(area.cursor(), None, "drawn in the view");
+    /// area.set_virtual_cursor(false);
+    /// assert!(area.cursor().is_some(), "the terminal's own");
+    /// ```
     pub fn set_virtual_cursor(&mut self, on: bool) {
         self.flags.set(USE_VIRTUAL_CURSOR, on);
         self.update_cursor_style();
@@ -218,147 +317,6 @@ impl Model {
         let _ = self.virtual_cursor.set_mode(mode);
     }
 
-    /// Replaces the text.
-    pub fn set_value(&mut self, text: &str) {
-        self.reset();
-        self.insert_string(text);
-        self.reposition_view();
-    }
-
-    /// Inserts `text` at the cursor, as if typed or pasted.
-    pub fn insert_string(&mut self, text: &str) {
-        self.insert_from_user(&text.chars().collect::<Vec<_>>());
-        self.recalculate_height();
-    }
-
-    /// Inserts one character at the cursor.
-    pub fn insert_rune(&mut self, c: char) {
-        self.insert_from_user(&[c]);
-        self.recalculate_height();
-    }
-
-    /// The text, lines joined with `\n`.
-    #[must_use]
-    pub fn value(&self) -> String {
-        let lines: Vec<String> = self.value.iter().map(|l| l.iter().collect()).collect();
-        lines.join("\n")
-    }
-
-    /// Characters in the text, a line break counting one.
-    #[must_use]
-    pub fn length(&self) -> usize {
-        self.value.iter().map(Vec::len).sum::<usize>() + self.value.len() - 1
-    }
-
-    /// How many lines.
-    #[must_use]
-    pub fn line_count(&self) -> usize {
-        self.value.len()
-    }
-
-    /// The cursor's line, from 0.
-    #[must_use]
-    pub const fn line(&self) -> usize {
-        self.row
-    }
-
-    /// The cursor's column, in characters.
-    #[must_use]
-    pub const fn column(&self) -> usize {
-        self.col
-    }
-
-    /// The first screen line showing.
-    #[must_use]
-    pub const fn scroll_y_offset(&self) -> usize {
-        self.viewport.y_offset()
-    }
-
-    /// How far down it has scrolled, from 0.0 to 1.0.
-    #[must_use]
-    pub fn scroll_percent(&self) -> f64 {
-        self.viewport.scroll_percent()
-    }
-
-    /// Whether it is focused: only a focused text area takes keys.
-    #[must_use]
-    pub const fn focused(&self) -> bool {
-        self.flags.get(FOCUS)
-    }
-
-    /// Focuses it; the command starts the cursor blinking.
-    pub fn focus(&mut self) -> Cmd<Msg> {
-        self.flags.set(FOCUS, true);
-        self.virtual_cursor.focus()
-    }
-
-    /// Blurs it.
-    pub const fn blur(&mut self) {
-        self.flags.set(FOCUS, false);
-        self.virtual_cursor.blur();
-    }
-
-    /// Empties it.
-    pub fn reset(&mut self) {
-        self.value = vec![Vec::new()];
-        self.col = 0;
-        self.row = 0;
-        self.viewport.goto_top();
-        self.set_cursor_column(0);
-        self.recalculate_height();
-        self.clear_selection();
-    }
-
-    /// The text's width, in cells, without prompt and line numbers.
-    #[must_use]
-    pub const fn width(&self) -> usize {
-        self.width
-    }
-
-    /// Sets the whole width, prompt, line numbers and frame included,
-    /// within [`Model::max_width`].
-    pub fn set_width(&mut self, columns: usize) {
-        if self.prompt_fn.is_none() {
-            self.prompt_width = width(&self.prompt);
-        }
-        let outer = self.active_style().base.horizontal_frame();
-        let mut inner = self.prompt_width;
-        if self.show_line_numbers {
-            inner += digits(self.max_height) + 2;
-        }
-        let least = inner + outer + 1;
-        let mut input = columns.max(least);
-        if self.max_width > 0 {
-            input = input.min(self.max_width.max(least));
-        }
-        self.viewport.set_width(input - outer);
-        self.width = input - outer - inner;
-        self.recalculate_height();
-    }
-
-    /// A prompt drawn by `prompt` for each line, `columns` wide.
-    pub fn set_prompt_func(&mut self, columns: usize, prompt: fn(PromptInfo) -> String) {
-        self.prompt_fn = Some(prompt);
-        self.prompt_width = columns;
-    }
-
-    /// The height, in rows.
-    #[must_use]
-    pub const fn height(&self) -> usize {
-        self.height
-    }
-
-    /// Sets the height, within [`Model::max_height`].
-    pub fn set_height(&mut self, rows: usize) {
-        self.height = if self.max_height > 0 {
-            rows.clamp(MIN_HEIGHT, self.max_height)
-        } else {
-            rows.max(MIN_HEIGHT)
-        };
-        self.viewport.set_height(self.height);
-        self.reposition_view();
-    }
-
     /// The styles for the state, focused or blurred.
     const fn active_style(&self) -> &StyleState {
         if self.flags.get(FOCUS) {
@@ -371,6 +329,17 @@ impl Model {
     /// Edits on its keys and pastes while focused, scrolls, and blinks
     /// its cursor. Ctrl-V asks the terminal for the clipboard (OSC 52)
     /// and pastes its reply; Ctrl-Shift-C copies the selection with OSC 52.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::textarea;
+    ///
+    /// let mut area = textarea::Model::new();
+    /// let _ = area.focus();
+    /// area.set_value("one two");
+    /// let _ = area.update(&tea::Msg::KeyPress(tea::Key::ctrl('w')));
+    /// assert_eq!(area.value(), "one ", "Ctrl-W deletes a word");
+    /// ```
     pub fn update(&mut self, msg: &TeaMsg<Msg>) -> Cmd<Msg> {
         if !self.flags.get(FOCUS) {
             self.virtual_cursor.blur();
@@ -436,6 +405,35 @@ fn digits(n: usize) -> usize {
 
 /// A command that starts a focused textarea's cursor blinking: Bubbles'
 /// `textarea.Blink`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::bubbles::textarea;
+///
+/// use std::time::Duration;
+///
+/// struct App(textarea::Model);
+///
+/// impl tea::Model for App {
+///     type Msg = textarea::Msg;
+///     fn init(&mut self) -> tea::Cmd<textarea::Msg> {
+///         textarea::blink()
+///     }
+///     fn update(&mut self, msg: tea::Msg<textarea::Msg>) -> tea::Cmd<textarea::Msg> {
+///         self.0.update(&msg)
+///     }
+///     fn view(&self) -> tea::View {
+///         self.0.view().into()
+///     }
+/// }
+///
+/// let mut area = textarea::Model::new();
+/// let _ = area.focus();
+/// let mut p = tea::testing::TestProgram::new(App(area), 40, 6);
+/// let shown = p.model().0.view();
+/// p.advance(Duration::from_millis(600));
+/// assert_ne!(p.model().0.view(), shown, "the cursor blinked off");
+/// ```
 #[must_use]
 pub fn blink() -> Cmd<Msg> {
     cursor::blink()

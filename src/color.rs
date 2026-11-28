@@ -7,6 +7,15 @@ mod profile;
 pub use profile::ColorProfile;
 
 /// A 24-bit colour.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::Rgb;
+///
+/// assert!(Rgb::new(0x1a, 0x1b, 0x2c).is_dark());
+/// assert!(!Rgb::new(255, 255, 255).is_dark());
+/// assert_eq!(Rgb::default(), Rgb::new(0, 0, 0));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Rgb {
     /// Red.

@@ -16,7 +16,11 @@
 //! assert!(v.at_bottom());
 //! ```
 
+mod keymap;
 mod render;
+mod scroll;
+
+pub use keymap::KeyMap;
 
 use super::key::Binding;
 use crate::style::{Style, width};
@@ -33,6 +37,16 @@ const HORIZONTAL_STEP: usize = 6;
 
 /// What a gutter function is told about a line: Bubbles'
 /// `viewport.GutterContext`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::bubbles::viewport;
+///
+/// let mut v = viewport::Model::new(6, 2);
+/// v.left_gutter = Some(|g: viewport::GutterContext| format!("{} ", g.index + 1));
+/// v.set_content("a\nb");
+/// assert_eq!(v.view(), "1 a   \n2 b   ");
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct GutterContext {
     /// The line's index in the content (past the end for filler lines).
@@ -46,64 +60,17 @@ pub struct GutterContext {
 /// Draws the gutter left of a line: Bubbles' `viewport.GutterFunc`.
 pub type GutterFn = fn(GutterContext) -> String;
 
-/// The keys of a viewport: Bubbles' `viewport.KeyMap`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct KeyMap {
-    /// A page down.
-    pub page_down: Binding,
-    /// A page up.
-    pub page_up: Binding,
-    /// Half a page up.
-    pub half_page_up: Binding,
-    /// Half a page down.
-    pub half_page_down: Binding,
-    /// A line down.
-    pub down: Binding,
-    /// A line up.
-    pub up: Binding,
-    /// A step left.
-    pub left: Binding,
-    /// A step right.
-    pub right: Binding,
-}
-
-impl Default for KeyMap {
-    /// Bubbles v2's `viewport.DefaultKeyMap`.
-    fn default() -> Self {
-        let b = |keys: &[&str], key: &str, desc: &str| Binding::new(keys).with_help(key, desc);
-        Self {
-            page_down: b(&["pgdown", "space", "f"], "f/pgdn", "page down"),
-            page_up: b(&["pgup", "b"], "b/pgup", "page up"),
-            half_page_up: b(&["u", "ctrl+u"], "u", "½ page up"),
-            half_page_down: b(&["d", "ctrl+d"], "d", "½ page down"),
-            up: b(&["up", "k"], "↑/k", "up"),
-            down: b(&["down", "j"], "↓/j", "down"),
-            left: b(&["left", "h"], "←/h", "move left"),
-            right: b(&["right", "l"], "→/l", "move right"),
-        }
-    }
-}
-
-impl KeyMap {
-    /// No bindings at all, for a viewport driven by its owner (the text
-    /// area's).
-    #[must_use]
-    pub fn none() -> Self {
-        let off = Binding::default;
-        Self {
-            page_down: off(),
-            page_up: off(),
-            half_page_up: off(),
-            half_page_down: off(),
-            down: off(),
-            up: off(),
-            left: off(),
-            right: off(),
-        }
-    }
-}
-
 /// A viewport: Bubbles' `viewport.Model`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::bubbles::viewport;
+///
+/// let mut v = viewport::Model::new(3, 2);
+/// v.soft_wrap = true;
+/// v.set_content("abcdef");
+/// assert_eq!(v.view(), "abc\ndef");
+/// ```
 #[derive(Debug, Clone)]
 pub struct Model {
     width: usize,
@@ -142,6 +109,15 @@ impl Default for Model {
 impl Model {
     /// An empty viewport `width` by `height` cells: `viewport.New` with
     /// `WithWidth` and `WithHeight`.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::viewport;
+    ///
+    /// let v = viewport::Model::new(10, 2);
+    /// assert_eq!((v.width(), v.height()), (10, 2));
+    /// assert_eq!(v.content(), "");
+    /// ```
     #[must_use]
     pub fn new(width: usize, height: usize) -> Self {
         Self {
@@ -165,46 +141,131 @@ impl Model {
     }
 
     /// The width.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::viewport;
+    ///
+    /// let mut v = viewport::Model::new(10, 2);
+    /// assert_eq!(v.width(), 10);
+    /// v.set_width(4);
+    /// assert_eq!(v.width(), 4);
+    /// ```
     #[must_use]
     pub const fn width(&self) -> usize {
         self.width
     }
 
     /// Sets the width.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::viewport;
+    ///
+    /// let mut v = viewport::Model::new(10, 1);
+    /// v.set_content("abcdef");
+    /// v.set_width(3);
+    /// assert_eq!(v.view(), "abc");
+    /// ```
     pub const fn set_width(&mut self, columns: usize) {
         self.width = columns;
     }
 
     /// The height.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::viewport;
+    ///
+    /// let mut v = viewport::Model::new(10, 2);
+    /// assert_eq!(v.height(), 2);
+    /// v.set_height(5);
+    /// assert_eq!(v.height(), 5);
+    /// ```
     #[must_use]
     pub const fn height(&self) -> usize {
         self.height
     }
 
     /// Sets the height.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::viewport;
+    ///
+    /// let mut v = viewport::Model::new(1, 1);
+    /// v.set_content("1\n2\n3\n4\n5");
+    /// v.set_height(3);
+    /// assert_eq!(v.visible_line_count(), 3);
+    /// ```
     pub const fn set_height(&mut self, rows: usize) {
         self.height = rows;
     }
 
     /// Whether the top shows.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::viewport;
+    ///
+    /// let mut v = viewport::Model::new(1, 2);
+    /// v.set_content("1\n2\n3\n4\n5");
+    /// assert!(v.at_top());
+    /// v.scroll_down(1);
+    /// assert!(!v.at_top());
+    /// ```
     #[must_use]
     pub const fn at_top(&self) -> bool {
         self.y_offset == 0
     }
 
     /// Whether the bottom shows.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::viewport;
+    ///
+    /// let mut v = viewport::Model::new(1, 2);
+    /// v.set_content("1\n2\n3\n4\n5");
+    /// assert!(!v.at_bottom());
+    /// v.goto_bottom();
+    /// assert!(v.at_bottom());
+    /// ```
     #[must_use]
     pub fn at_bottom(&self) -> bool {
         self.y_offset >= self.max_y_offset()
     }
 
     /// Whether it scrolled past the bottom (content got shorter).
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::viewport;
+    ///
+    /// let mut v = viewport::Model::new(1, 2);
+    /// v.set_content("1\n2\n3\n4\n5");
+    /// v.goto_bottom();
+    /// assert!(!v.past_bottom());
+    /// v.set_height(5);
+    /// assert!(v.past_bottom(), "taller now, so scrolled too far");
+    /// ```
     #[must_use]
     pub fn past_bottom(&self) -> bool {
         self.y_offset > self.max_y_offset()
     }
 
     /// How far down it has scrolled, from 0.0 to 1.0.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::viewport;
+    ///
+    /// let mut v = viewport::Model::new(1, 3);
+    /// v.set_content("1\n2\n3\n4\n5");
+    /// assert_eq!(v.scroll_percent(), 0.0);
+    /// v.scroll_down(1);
+    /// assert_eq!(v.scroll_percent(), 0.5);
+    /// ```
     #[must_use]
     pub fn scroll_percent(&self) -> f64 {
         let most = self.max_y_offset();
@@ -215,6 +276,17 @@ impl Model {
     }
 
     /// How far right it has scrolled, from 0.0 to 1.0.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::viewport;
+    ///
+    /// let mut v = viewport::Model::new(2, 1);
+    /// v.set_content("abcdef");
+    /// assert_eq!(v.horizontal_scroll_percent(), 0.0);
+    /// v.set_x_offset(2);
+    /// assert_eq!(v.horizontal_scroll_percent(), 0.5);
+    /// ```
     #[must_use]
     pub fn horizontal_scroll_percent(&self) -> f64 {
         if self.x_offset + self.width >= self.longest {
@@ -225,6 +297,16 @@ impl Model {
     }
 
     /// Replaces the content; lines end at `\n` (or `\r\n`).
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::viewport;
+    ///
+    /// let mut v = viewport::Model::new(3, 2);
+    /// v.set_content("a\r\nb");
+    /// assert_eq!(v.content(), "a\nb");
+    /// assert_eq!(v.view(), "a  \nb  ");
+    /// ```
     pub fn set_content(&mut self, content: &str) {
         let lines: Vec<String> = content
             .replace("\r\n", "\n")
@@ -235,6 +317,15 @@ impl Model {
     }
 
     /// Replaces the content with these lines.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::viewport;
+    ///
+    /// let mut v = viewport::Model::new(3, 2);
+    /// v.set_content_lines(vec!["x".into(), "y".into()]);
+    /// assert_eq!(v.view(), "x  \ny  ");
+    /// ```
     pub fn set_content_lines(&mut self, lines: Vec<String>) {
         self.lines = if lines.len() == 1 && width(&lines[0]) == 0 {
             Vec::new()
@@ -248,117 +339,67 @@ impl Model {
     }
 
     /// The content.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::viewport;
+    ///
+    /// let mut v = viewport::Model::new(3, 1);
+    /// v.set_content_lines(vec!["x".into(), "y".into()]);
+    /// assert_eq!(v.content(), "x\ny");
+    /// ```
     #[must_use]
     pub fn content(&self) -> String {
         self.lines.join("\n")
     }
 
-    /// The first line showing.
-    #[must_use]
-    pub const fn y_offset(&self) -> usize {
-        self.y_offset
-    }
-
-    /// Scrolls so line `n` is at the top, as far as the content goes.
-    pub fn set_y_offset(&mut self, n: usize) {
-        self.y_offset = n.min(self.max_y_offset());
-    }
-
-    /// The first column showing.
-    #[must_use]
-    pub const fn x_offset(&self) -> usize {
-        self.x_offset
-    }
-
-    /// Scrolls sideways to column `n`; nothing when soft wrapping.
-    pub fn set_x_offset(&mut self, n: usize) {
-        if !self.soft_wrap {
-            self.x_offset = n.min(self.longest.saturating_sub(self.width));
-        }
-    }
-
-    /// How far a step sideways goes.
-    pub const fn set_horizontal_step(&mut self, n: usize) {
-        self.horizontal_step = n;
-    }
-
-    /// A page down.
-    pub fn page_down(&mut self) {
-        if !self.at_bottom() {
-            self.scroll_down(self.inner_height());
-        }
-    }
-
-    /// A page up.
-    pub fn page_up(&mut self) {
-        if !self.at_top() {
-            self.scroll_up(self.inner_height());
-        }
-    }
-
-    /// Half a page down.
-    pub fn half_page_down(&mut self) {
-        if !self.at_bottom() {
-            self.scroll_down(self.inner_height() / 2);
-        }
-    }
-
-    /// Half a page up.
-    pub fn half_page_up(&mut self) {
-        if !self.at_top() {
-            self.scroll_up(self.inner_height() / 2);
-        }
-    }
-
-    /// `n` lines down.
-    pub fn scroll_down(&mut self, n: usize) {
-        if self.at_bottom() || n == 0 || self.lines.is_empty() {
-            return;
-        }
-        self.set_y_offset(self.y_offset + n);
-    }
-
-    /// `n` lines up.
-    pub fn scroll_up(&mut self, n: usize) {
-        if self.at_top() || n == 0 || self.lines.is_empty() {
-            return;
-        }
-        self.set_y_offset(self.y_offset.saturating_sub(n));
-    }
-
-    /// `n` columns left.
-    pub fn scroll_left(&mut self, n: usize) {
-        self.set_x_offset(self.x_offset.saturating_sub(n));
-    }
-
-    /// `n` columns right.
-    pub fn scroll_right(&mut self, n: usize) {
-        self.set_x_offset(self.x_offset + n);
-    }
-
-    /// To the top.
-    pub const fn goto_top(&mut self) {
-        self.y_offset = 0;
-    }
-
-    /// To the bottom.
-    pub fn goto_bottom(&mut self) {
-        self.y_offset = self.max_y_offset();
-    }
-
     /// Lines the content takes, soft wrapped or not.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::viewport;
+    ///
+    /// let mut v = viewport::Model::new(3, 1);
+    /// v.set_content("abcdef\ng");
+    /// assert_eq!(v.total_line_count(), 2);
+    /// v.soft_wrap = true;
+    /// assert_eq!(v.total_line_count(), 3, "the long line wraps in two");
+    /// ```
     #[must_use]
     pub fn total_line_count(&self) -> usize {
         self.locate(0).0
     }
 
     /// Lines showing.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::viewport;
+    ///
+    /// let mut v = viewport::Model::new(1, 2);
+    /// v.set_content("1\n2\n3\n4\n5");
+    /// assert_eq!(v.visible_line_count(), 2);
+    /// v.set_content("1");
+    /// assert_eq!(v.visible_line_count(), 1);
+    /// ```
     #[must_use]
     pub fn visible_line_count(&self) -> usize {
         self.visible_lines().len()
     }
 
     /// Scrolls on its keys and the mouse wheel.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::bubbles::viewport;
+    ///
+    /// let mut v = viewport::Model::new(1, 2);
+    /// v.set_content("1\n2\n3\n4\n5");
+    /// let _ = v.update::<()>(&tea::Msg::KeyPress(tea::Key::char('j')));
+    /// assert_eq!(v.y_offset(), 1, "j is a line down");
+    /// let _ = v.update::<()>(&tea::Msg::KeyPress(tea::Key::char('k')));
+    /// assert_eq!(v.y_offset(), 0);
+    /// ```
     pub fn update<M>(&mut self, msg: &Msg<M>) -> Cmd<M> {
         match msg {
             Msg::KeyPress(key) => self.press(key),
