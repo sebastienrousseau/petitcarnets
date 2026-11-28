@@ -358,6 +358,16 @@ repaint or a terminal taken back after a handover prints the whole
 frame again. On a real terminal the cursor, hidden by the terminal guard
 when it is entered, is shown before the first line.
 
+The input modes are not taken out: input works as it always does, so
+bracketed paste (`\e[?2004h`), modifyOtherKeys (`\e[>4;2m`) and the
+kitty keyboard flags (`\e[>1u`) are set before the first line and reset
+at exit (`\e[>4m`, `\e[<u`, `\e[?2004l`), and mouse tracking, focus
+reports and the window title are written when the view asks for them.
+On a real terminal the guard's `\e[?25l` on entry and `\e[?25h` on exit
+are written too. Output captured to a file (a `script` log, or a
+`Backend` given to `run_with`) therefore holds these few sequences at
+its start and end, around the plain lines.
+
 ## The output queue
 
 Files: `src/program/run.rs` (`output`, `print`, `redraw`),

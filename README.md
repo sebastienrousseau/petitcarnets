@@ -100,7 +100,13 @@ movement, no alternate screen and no colour (Bubble Tea's
 `tea::Program::new(m).with_accessible(true)`, huh's `WithAccessible`.
 Without that call, a program in a terminal whose environment sets
 `ACCESSIBLE` (to anything but the empty string, as huh's documentation
-recommends) prints lines too, so the person at the terminal decides.
+recommends) prints lines too, so the person at the terminal decides. Input works as
+always, so the input modes are still written: bracketed paste,
+modifyOtherKeys and the kitty keyboard flags (`\e[?2004h`, `\e[>4;2m`,
+`\e[>1u`) before the first line and their resets at exit, plus mouse,
+focus reports and the window title if the view asks for them. Output
+captured to a file (a `script` log, or a backend given to `run_with`)
+holds these few sequences at its start and end.
 
 **Ctrl-Z suspends by default.** Unlike Bubble Tea, where each program
 must handle it ([its pull request #500](https://github.com/charmbracelet/bubbletea/pull/500)),

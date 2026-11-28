@@ -17,6 +17,41 @@ exactly 0.0.1 above the previous one.
   FreeBSD too: the test helper opens its pseudo-terminal with the POSIX
   calls (`posix_openpt`, `grantpt`, `unlockpt`, `ptsname`) instead of
   Linux's ioctls.
+- `tea::task(work)`, a free function beside `tea::tick`, `tea::batch`
+  and the others, the same as `Cmd::task(work)` (which stays). Go has no
+  `tea.Task`: a Go command is any `func() tea.Msg`, and
+  `tea::task(|| ...)` is the equivalent of returning one. Found by
+  `nalufx tui`.
+
+### Changed
+
+- Breaking: the `Style` emphasis setters take a `bool`, as Lip Gloss's
+  do: `bold(on)`, `dim(on)` (Lip Gloss's `Faint`), `italic(on)`,
+  `underline(on)` and `reverse(on)`, still `const fn`. `true` sets the
+  attribute and `false` clears it; as in Lip Gloss, an attribute turned
+  off with `false` counts as set, so `inherit` does not take it from the
+  other style. A Go port's `.Bold(true)` now reads `.bold(true)`. To
+  migrate, replace `.bold()` with `.bold(true)` (and the same for the
+  others). The bytes written are unchanged. Found by `nalufx tui`.
+- Breaking: the Bubbles components store their callbacks as closures,
+  `Arc<dyn Fn(..) -> .. + Send + Sync>`, instead of `fn` pointers, so
+  they can capture state as Go closures do; the models stay `Clone`, and
+  their `Debug` shows a callback as `..`. The fields:
+  `list::Model::filter` (`FilterFn`), `additional_short_help_keys` and
+  `additional_full_help_keys`; `textinput::Model::validate`
+  (`ValidateFn`); `viewport::Model::left_gutter` (`GutterFn`) and
+  `style_line`; `progress::Model::percent_format`. The setters
+  `textarea::Model::set_prompt_func` and
+  `progress::Model::with_color_fn` take any
+  `impl Fn(..) -> .. + Send + Sync + 'static`, so a `fn` item passed to
+  them still works unchanged. To migrate a field assignment, wrap the
+  function or closure: `v.left_gutter = Some(Arc::new(gutter))`,
+  `l.filter = Arc::new(list::unsorted_filter)`. Found by `nalufx tui`.
+- Three runtime tests follow the `TestProgram` fix below (a `send` or
+  an `input` now draws its frame as it returns): the frame-rate test in
+  `tests/harness.rs` checks the held-back frame with a timer that fires
+  during `advance`, and the two frame counts in `tests/runtime.rs`
+  count those frames.
 
 ### Fixed
 
@@ -30,8 +65,20 @@ exactly 0.0.1 above the previous one.
   such stale frames and are corrected: `timer-stopped` (the help said
   "s stop" after stopping), `help-narrow` (the 60-column help, cut,
   instead of the help laid out for 20 columns) and `mouse-events` (focus
-  and blur missing). `advance` and `wait_for` keep the frame rate as
-  before.
+  and blur missing). `TestProgram::new` and `with_terminal` do the same
+  for the start, so an init command's message (a spinner's first tick)
+  is on screen when they return; three more goldens corrected for it:
+  `spinners-start`, `composable-views-start` and `send-msg-start`
+  showed the spinner's frame before its first tick. `advance` and
+  `wait_for` keep the frame rate as before.
+- The accessible output's documentation (`Program::with_accessible`,
+  the README, `docs/architecture.md` and `docs/go-to-rust.md`) now says
+  what it still writes: the input modes (bracketed paste,
+  modifyOtherKeys, the kitty keyboard flags, and mouse or focus reports
+  when the view asks) at the start and their resets at exit, so input
+  works, and on a real terminal the guard's cursor hide and show. Output
+  captured to a file holds these few sequences around the plain lines.
+  The behaviour is unchanged. Found by `nalufx tui`.
 
 ## [0.0.7] - 2026-11-28
 

@@ -108,7 +108,7 @@ nothing. A petitcarnets `tea::Cmd<A>` is an opaque value:
 | Go | petitcarnets |
 | --- | --- |
 | `return m, nil` | `tea::Cmd::none()` |
-| `func() tea.Msg { return fetch() }` | `tea::Cmd::task(\|\| Msg::Fetched(fetch()))` |
+| `func() tea.Msg { return fetch() }` | `tea::task(\|\| Msg::Fetched(fetch()))`, or `tea::Cmd::task(...)` |
 | `return m, tea.Quit` | `return tea::quit()` |
 | `tea.Tick(d, func(t time.Time) tea.Msg { return tickMsg(t) })` | `tea::tick(d, Msg::Tick)` with `Tick(SystemTime)` |
 | `tea.Batch(a, b)` | `tea::batch([a, b])` |
@@ -117,7 +117,10 @@ nothing. A petitcarnets `tea::Cmd<A>` is an opaque value:
   `tea.ClearScreen`, `tea.RequestWindowSize`); in Rust each is a
   function you call (`tea::quit()`, `tea::clear_screen()`,
   `tea::request_window_size()`) that returns the command.
-- `Cmd::task` runs its closure on a thread of its own and sends what it
+- Go has no `tea.Task`: a Go command is any `func() tea.Msg`, and
+  `tea::task(|| ...)` (the same as `tea::Cmd::task(|| ...)`) is the
+  equivalent of returning such a function.
+- `tea::task` runs its closure on a thread of its own and sends what it
   returns as `tea::Msg::App`. It must return a message: where Go returns
   `nil` from a command, return a variant your `update` ignores.
 - `tick` and `every` are timers on the event loop, not sleeping
@@ -267,7 +270,11 @@ nothing is redrawn in place, the cursor is not moved and the alternate
 screen is not used. Without the call, it is on when the environment has
 a non-empty `ACCESSIBLE` and the program runs in a real terminal;
 `with_accessible(false)` turns it off whatever the environment says.
-Bubble Tea itself has no such mode.
+Bubble Tea itself has no such mode. Input works as always, so the input
+modes (bracketed paste, modifyOtherKeys, the kitty keyboard flags, and
+mouse or focus reports if the view asks) are still set at the start and
+reset at the end: output captured to a file holds those few sequences
+around the plain lines.
 
 ### Errors
 
@@ -335,7 +342,7 @@ instead.
 
 | Bubble Tea (Go) | petitcarnets |
 | --- | --- |
-| `Cmd` (`func() Msg`) | `tea::Cmd<A>`; `Cmd::task(f)` for a closure, `Cmd::none()` for `nil` |
+| `Cmd` (`func() Msg`) | `tea::Cmd<A>`; `tea::task(f)` (or `Cmd::task(f)`) for a closure, `Cmd::none()` for `nil` |
 | `Batch(cmds...)` | `tea::batch(cmds)` |
 | `BatchMsg` | not ported: batches are handled by the runtime and never reach the model |
 | `Sequence(cmds...)` | `tea::sequence(cmds)` |
