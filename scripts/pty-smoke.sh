@@ -11,8 +11,9 @@
 # exactly the keys typed while it runs and the program the rest, with
 # every mode back after; Ctrl-Z and `kill -TSTP` suspend and `kill
 # -CONT` resumes with a fresh frame; NO_COLOR leaves no colour in frames or
-# printed lines; replies to queries never reach the shell; and a text
-# input takes UTF-8 typed in a real terminal. Linux only.
+# printed lines; replies to queries never reach the shell; a text
+# input takes UTF-8 typed in a real terminal; and ACCESSIBLE=1 prints
+# plain lines with no redraws. Linux only.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 cargo build -q --example counter --example lifecycle --example mouse --example package-manager \
@@ -347,6 +348,39 @@ elif ! has "$log" $'Pik\xc3\xa1chu \xe5\xad\x97e\xcc\x81' || ! has "$log" $'\e[?
   echo "FAIL textinput: the typed text or the shown cursor is missing"; fails=$((fails + 1))
 else
   echo "ok   textinput: UTF-8 typed as text, the terminal's cursor shown, terminal restored"
+fi
+
+# Accessible output: with ACCESSIBLE=1 the counter (whose view asks for
+# the alternate screen) prints each changed line once, as plain text:
+# no alternate screen, no synchronized output, autowrap left on, no
+# cursor moves or erases, the cursor shown, and no colour or style.
+log="$dir/accessible.log"
+counter_keys | ACCESSIBLE=1 TERM=xterm-256color script -q -e -c \
+  "stty -g > $dir/before; ./target/debug/examples/counter; echo EXIT=\$?; stty -g > $dir/after" \
+  "$log" > /dev/null || true
+if ! grep -a -q 'EXIT=0' "$log" || ! cmp -s "$dir/before" "$dir/after"; then
+  echo "FAIL accessible: exit or terminal mode not restored"; fails=$((fails + 1))
+elif ! grep -a -q 'Final count: 2' "$log"; then
+  echo "FAIL accessible: keys did not reach the model"; fails=$((fails + 1))
+elif ! python3 - "$log" <<'PY'
+import re, sys
+d = open(sys.argv[1], "rb").read()
+d = d[:d.rindex(b"EXIT=")]
+# The terminal hides the cursor when it is entered; the program shows it
+# before its first line and never hides it again.
+shown = d.find(b"\x1b[?25h")
+forbidden = [b"\x1b[?1049", b"\x1b[?2026", b"\x1b[?7l", b"\x1b[?25l", b"\x1b[J", b"\x1b[K", b"\x1b[2J"]
+moves = re.findall(rb"\x1b\[[0-9;]*[ABCDGHfm]", d)
+counts = [l.strip() for l in re.findall(rb"Count: -?\d+", d)]
+want = [b"Count: %d" % n for n in (0, 1, 2, 1, 2)]
+ok = 0 <= shown < d.find(b"Count") and not any(f in d[shown:] for f in forbidden)
+ok = ok and not moves and counts == want
+sys.exit(0 if ok else 1)
+PY
+then
+  echo "FAIL accessible: frames were redrawn or styled, or lines are missing"; fails=$((fails + 1))
+else
+  echo "ok   accessible: each changed line printed once, plain, no redraws, terminal restored"
 fi
 
 [[ "$fails" == 0 ]] || { echo "$fails pty check(s) failed"; exit 1; }
