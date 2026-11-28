@@ -275,17 +275,23 @@ fn the_frame_rate_holds_frames_back_on_the_virtual_clock() {
     let program = tea::Program::new(Rig::default()).with_fps(10);
     let mut test = TestProgram::with_terminal(program, TestTerminal::new(20, 3));
     test.send("now".to_string());
-    assert_eq!(test.screen().text(), "updates 2", "held back");
-    test.advance(ms(99));
-    assert_eq!(test.screen().text(), "updates 2");
+    assert_eq!(test.screen().text(), "updates 3", "shown when send returns");
+    test.advance(ms(950));
+    test.press(Key::char('e'));
+    assert_eq!(test.screen().text(), "updates 4", "a key draws at once");
+    test.advance(ms(50));
+    assert_eq!(seen(&test).last(), Some(&"every 0"), "the timer fired");
+    assert_eq!(test.screen().text(), "updates 4", "held back");
+    test.advance(ms(49));
+    assert_eq!(test.screen().text(), "updates 4");
     test.advance(ms(1));
     assert_eq!(
         test.screen().text(),
-        "updates 3",
+        "updates 5",
         "drawn 100 ms after the last"
     );
     test.press(Key::char('y'));
-    assert_eq!(test.screen().text(), "updates 4", "a key draws at once");
+    assert_eq!(test.screen().text(), "updates 6", "a key draws at once");
 }
 
 #[test]

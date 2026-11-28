@@ -132,7 +132,7 @@ impl<M: Model> TestProgram<M> {
             sender,
         };
         if test.step() {
-            test.settle();
+            test.settle_and_show();
         }
         test
     }
