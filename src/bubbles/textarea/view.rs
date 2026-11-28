@@ -144,7 +144,7 @@ impl Model {
 
     /// The prompt for screen line `display`, in its style.
     fn prompt_view(&self, display: usize) -> String {
-        let prompt = self.prompt_fn.map_or_else(
+        let prompt = self.prompt_fn.as_ref().map_or_else(
             || self.prompt.clone(),
             |f| {
                 let p = f(PromptInfo {
@@ -279,4 +279,37 @@ fn under_cursor(rest: &[char], style: Style, cursor: &mut cursor::Model) -> Stri
     let end = grapheme_at(rest, 0).1.min(rest.len());
     cursor.set_char(&rest[..end].iter().collect::<String>());
     style.paint(&cursor.view()) + &paint_chars(style, &rest[end..])
+}
+
+impl std::fmt::Debug for Model {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Model")
+            .field("err", &self.err)
+            .field("prompt", &self.prompt)
+            .field("placeholder", &self.placeholder)
+            .field("show_line_numbers", &self.show_line_numbers)
+            .field("end_of_buffer_character", &self.end_of_buffer_character)
+            .field("key_map", &self.key_map)
+            .field("char_limit", &self.char_limit)
+            .field("max_height", &self.max_height)
+            .field("max_width", &self.max_width)
+            .field("dynamic_height", &self.dynamic_height)
+            .field("min_height", &self.min_height)
+            .field("max_content_height", &self.max_content_height)
+            .field("styles", &self.styles)
+            .field("virtual_cursor", &self.virtual_cursor)
+            .field("prompt_fn", &super::super::opaque(self.prompt_fn.as_ref()))
+            .field("prompt_width", &self.prompt_width)
+            .field("width", &self.width)
+            .field("height", &self.height)
+            .field("value", &self.value)
+            .field("col", &self.col)
+            .field("row", &self.row)
+            .field("last_char_offset", &self.last_char_offset)
+            .field("viewport", &self.viewport)
+            .field("anchor", &self.anchor)
+            .field("head", &self.head)
+            .field("flags", &self.flags)
+            .finish()
+    }
 }

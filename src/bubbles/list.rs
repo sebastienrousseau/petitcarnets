@@ -57,6 +57,7 @@ pub use traits::{Item, ItemDelegate};
 
 use super::key::Binding;
 use super::{Flags, help, paginator, spinner, textinput};
+use std::sync::Arc;
 use std::time::Duration;
 
 /// A list's messages.
@@ -166,7 +167,7 @@ const SHOW_SPINNER: u16 = 1 << 7;
 /// assert!(l.is_filtered());
 /// assert_eq!(l.selected_item().map(|f| f.0), Some("cherry"));
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Model<I, D> {
     /// The title.
     pub title: String,
@@ -178,10 +179,12 @@ pub struct Model<I, D> {
     pub key_map: KeyMap,
     /// The filter.
     pub filter: FilterFn,
-    /// More bindings for the short help.
-    pub additional_short_help_keys: Option<fn() -> Vec<Binding>>,
-    /// More bindings for the full help.
-    pub additional_full_help_keys: Option<fn() -> Vec<Binding>>,
+    /// More bindings for the short help: Bubbles'
+    /// `AdditionalShortHelpKeys`, a closure that may capture state.
+    pub additional_short_help_keys: Option<Arc<dyn Fn() -> Vec<Binding> + Send + Sync>>,
+    /// More bindings for the full help: Bubbles'
+    /// `AdditionalFullHelpKeys`, a closure that may capture state.
+    pub additional_full_help_keys: Option<Arc<dyn Fn() -> Vec<Binding> + Send + Sync>>,
     /// The pages.
     pub paginator: paginator::Model,
     /// The help.
@@ -203,6 +206,43 @@ pub struct Model<I, D> {
     filtered: Vec<Filtered>,
     delegate: D,
     flags: Flags,
+}
+
+impl<I: std::fmt::Debug, D: std::fmt::Debug> std::fmt::Debug for Model<I, D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Model")
+            .field("title", &self.title)
+            .field("styles", &self.styles)
+            .field("infinite_scrolling", &self.infinite_scrolling)
+            .field("key_map", &self.key_map)
+            .field("filter", &super::Opaque)
+            .field(
+                "additional_short_help_keys",
+                &super::opaque(self.additional_short_help_keys.as_ref()),
+            )
+            .field(
+                "additional_full_help_keys",
+                &super::opaque(self.additional_full_help_keys.as_ref()),
+            )
+            .field("paginator", &self.paginator)
+            .field("help", &self.help)
+            .field("filter_input", &self.filter_input)
+            .field("status_message_lifetime", &self.status_message_lifetime)
+            .field("item_name_singular", &self.item_name_singular)
+            .field("item_name_plural", &self.item_name_plural)
+            .field("spinner", &self.spinner)
+            .field("width", &self.width)
+            .field("height", &self.height)
+            .field("cursor", &self.cursor)
+            .field("filter_state", &self.filter_state)
+            .field("status_message", &self.status_message)
+            .field("status_tag", &self.status_tag)
+            .field("items", &self.items)
+            .field("filtered", &self.filtered)
+            .field("delegate", &self.delegate)
+            .field("flags", &self.flags)
+            .finish()
+    }
 }
 
 impl<I: Item, D: ItemDelegate<I>> Model<I, D> {
@@ -258,7 +298,7 @@ impl<I: Item, D: ItemDelegate<I>> Model<I, D> {
             styles,
             infinite_scrolling: false,
             key_map: KeyMap::default(),
-            filter: default_filter,
+            filter: Arc::new(default_filter),
             additional_short_help_keys: None,
             additional_full_help_keys: None,
             paginator,

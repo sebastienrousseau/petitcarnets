@@ -90,7 +90,7 @@ impl tea::Model for Installer {
         let n = PACKAGES.len();
         if self.done {
             let done = Style::new()
-                .bold()
+                .bold(true)
                 .paint(&format!("Done! Installed {n} packages."));
             return tea::View::new(format!("{done}\n"));
         }

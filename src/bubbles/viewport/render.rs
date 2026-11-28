@@ -26,6 +26,7 @@ impl Model {
     pub(super) fn inner_width(&self) -> usize {
         let gutter = self
             .left_gutter
+            .as_ref()
             .map_or(0, |g| width(&g(GutterContext::default())));
         self.width
             .saturating_sub(self.style.horizontal_frame() + gutter)
@@ -108,12 +109,13 @@ impl Model {
     fn styled(&self, i: usize) -> String {
         let line = &self.lines[i];
         self.style_line
+            .as_ref()
             .map_or_else(|| line.clone(), |f| f(i).render(line))
     }
 
     /// The gutter before each line.
     fn with_gutter(&self, lines: Vec<String>, total: usize, first: usize) -> Vec<String> {
-        let Some(gutter) = self.left_gutter else {
+        let Some(gutter) = &self.left_gutter else {
             return lines;
         };
         lines
@@ -143,7 +145,7 @@ impl Model {
                 } else {
                     cut(line, start, start + columns)
                 };
-                let gutter = self.left_gutter.map_or_else(String::new, |g| {
+                let gutter = self.left_gutter.as_ref().map_or_else(String::new, |g| {
                     g(GutterContext {
                         index: i + first,
                         total_lines: total,
@@ -159,5 +161,34 @@ impl Model {
         }
         let rows = self.inner_height();
         out.into_iter().skip(into).take(rows).collect()
+    }
+}
+
+impl std::fmt::Debug for Model {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Model")
+            .field("width", &self.width)
+            .field("height", &self.height)
+            .field("key_map", &self.key_map)
+            .field("soft_wrap", &self.soft_wrap)
+            .field("fill_height", &self.fill_height)
+            .field("mouse_wheel_enabled", &self.mouse_wheel_enabled)
+            .field("mouse_wheel_delta", &self.mouse_wheel_delta)
+            .field("y_position", &self.y_position)
+            .field("style", &self.style)
+            .field(
+                "left_gutter",
+                &super::super::opaque(self.left_gutter.as_ref()),
+            )
+            .field(
+                "style_line",
+                &super::super::opaque(self.style_line.as_ref()),
+            )
+            .field("y_offset", &self.y_offset)
+            .field("x_offset", &self.x_offset)
+            .field("horizontal_step", &self.horizontal_step)
+            .field("lines", &self.lines)
+            .field("longest", &self.longest)
+            .finish()
     }
 }

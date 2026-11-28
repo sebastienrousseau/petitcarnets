@@ -20,6 +20,7 @@ use super::next_id;
 use crate::style::{Color, Style};
 use crate::{Cmd, Msg as TeaMsg};
 use spring::Spring;
+use std::sync::Arc;
 use std::time::Duration;
 
 /// The default full character, a half block that takes two colours.
@@ -49,8 +50,21 @@ const FULL_COLOR: Color = hex(0x75_71F9);
 const EMPTY_COLOR: Color = hex(0x60_6060);
 
 /// The colour of a cell: given the percentage shown and the cell's
-/// place, both from 0.0 to 1.0. Bubbles' `progress.ColorFunc`.
-pub type ColorFn = fn(total: f64, current: f64) -> Color;
+/// place, both from 0.0 to 1.0. Bubbles' `progress.ColorFunc`. Set
+/// with [`Model::with_color_fn`], which takes any closure.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use std::sync::Arc;
+/// use tea::bubbles::progress::ColorFn;
+/// use tea::style::Color;
+///
+/// let cut = 0.5;
+/// let f: ColorFn = Arc::new(move |_total, cell| if cell < cut { Color::RED } else { Color::BLUE });
+/// assert_eq!(f(1.0, 0.25), Color::RED);
+/// assert_eq!(f(1.0, 0.75), Color::BLUE);
+/// ```
+pub type ColorFn = Arc<dyn Fn(f64, f64) -> Color + Send + Sync>;
 
 /// Time for a bar's next animation frame: Bubbles' `progress.FrameMsg`.
 ///
@@ -133,7 +147,7 @@ pub type Msg = FrameMsg;
 /// test.advance(Duration::from_secs(1));
 /// assert_eq!(strip_ansi(&test.model().0.view()), "▌▌▌▌▌░░░░░");
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Model {
     /// The character of the filled part.
     pub full: char,
@@ -145,8 +159,20 @@ pub struct Model {
     pub empty_color: Color,
     /// Whether to show the percentage.
     pub show_percentage: bool,
-    /// Writes the percentage, given 0 to 100: Go's `" %3.0f%%"`.
-    pub percent_format: fn(f64) -> String,
+    /// Writes the percentage, given 0 to 100: Go's `" %3.0f%%"`. A
+    /// closure, so it may capture state; a plain `fn` works too.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use std::sync::Arc;
+    /// use tea::bubbles::progress;
+    ///
+    /// let unit = String::from("pct");
+    /// let mut bar = progress::Model::new().with_width(10);
+    /// bar.percent_format = Arc::new(move |p| format!(" {p:.0} {unit}"));
+    /// assert!(tea::style::strip_ansi(&bar.view_as(0.5)).ends_with(" 50 pct"));
+    /// ```
+    pub percent_format: Arc<dyn Fn(f64) -> String + Send + Sync>,
     /// The percentage's style.
     pub percentage_style: Style,
     id: u64,
@@ -188,7 +214,7 @@ impl Model {
             empty: DEFAULT_EMPTY_CHAR_BLOCK,
             empty_color: EMPTY_COLOR,
             show_percentage: true,
-            percent_format: |p| format!(" {p:3.0}%"),
+            percent_format: Arc::new(|p| format!(" {p:3.0}%")),
             percentage_style: Style::new(),
             id: next_id(),
             tag: 0,

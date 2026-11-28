@@ -94,7 +94,7 @@ pub use cmd::{
     raw, read_clipboard, read_primary_clipboard, release_terminal, repaint,
     request_background_color, request_capability, request_cursor_color, request_cursor_position,
     request_foreground_color, request_terminal_version, request_window_size, restore_terminal,
-    sequence, set_clipboard, set_primary_clipboard, suspend, tick,
+    sequence, set_clipboard, set_primary_clipboard, suspend, task, tick,
 };
 pub use color::{ColorProfile, Rgb};
 pub use environ::Environment;

@@ -7,7 +7,7 @@
 //! use petitcarnets as tea;
 //! use tea::style::{Color, Style};
 //!
-//! let title = Style::new().bold().fg(Color::RED).render("Title");
+//! let title = Style::new().bold(true).fg(Color::RED).render("Title");
 //! assert_eq!(tea::style::strip_ansi(&title), "Title");
 //! assert_eq!(tea::style::width(&title), 5);
 //! ```
@@ -129,6 +129,9 @@ pub struct Style {
     fg: Option<Color>,
     bg: Option<Color>,
     attributes: u8,
+    /// The attribute bits a setter chose, on or off, which
+    /// [`Style::inherit`] does not take from the other style.
+    chosen: u8,
     frame: Frame,
 }
 
@@ -166,6 +169,7 @@ impl Style {
             fg: None,
             bg: None,
             attributes: 0,
+            chosen: 0,
             frame: Frame {
                 padding: [0; 4],
                 margin: [0; 4],
@@ -186,7 +190,7 @@ impl Style {
     /// use tea::style::{Color, Style};
     ///
     /// assert_eq!(
-    ///     Style::new().bold().fg(Color::GREEN).paint("ok"),
+    ///     Style::new().bold(true).fg(Color::GREEN).paint("ok"),
     ///     "\x1b[1;32mok\x1b[0m"
     /// );
     /// assert_eq!(Style::new().paint("ok"), "ok");
@@ -258,7 +262,7 @@ pub(crate) fn set_width_method(method: WidthMethod) {
 ///
 /// assert_eq!(width("hello"), 5);
 /// assert_eq!(width("日本"), 4);
-/// assert_eq!(width(&Style::new().bold().paint("hi")), 2);
+/// assert_eq!(width(&Style::new().bold(true).paint("hi")), 2);
 /// ```
 #[must_use]
 pub fn width(text: &str) -> usize {

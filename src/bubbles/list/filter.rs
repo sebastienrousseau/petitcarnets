@@ -2,10 +2,34 @@
 
 use super::fuzzy;
 use std::fmt;
+use std::sync::Arc;
 
 /// Ranks a filter term against the items' filter values, best first:
-/// Bubbles' `list.FilterFunc`.
-pub type FilterFn = fn(&str, &[String]) -> Vec<Rank>;
+/// Bubbles' `list.FilterFunc`. A closure, so it may capture state;
+/// [`default_filter`] and [`unsorted_filter`] are plain `fn`s, wrapped
+/// with `Arc::new`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use std::sync::Arc;
+/// use tea::bubbles::list::{self, FilterFn, Rank};
+///
+/// let fuzzy: FilterFn = Arc::new(list::default_filter);
+/// let at_least = 2;
+/// let prefix: FilterFn = Arc::new(move |term: &str, targets: &[String]| {
+///     if term.len() < at_least {
+///         return Vec::new();
+///     }
+///     let hits = targets.iter().enumerate().filter(|(_, t)| t.starts_with(term));
+///     hits.map(|(index, _)| Rank { index, matched_indexes: (0..term.len()).collect() })
+///         .collect()
+/// });
+/// let fruits = ["apple".to_string(), "apricot".to_string()];
+/// assert_eq!(prefix("a", &fruits), []);
+/// assert_eq!(prefix("ap", &fruits).len(), 2);
+/// assert_eq!(fuzzy("ap", &fruits).len(), 2);
+/// ```
+pub type FilterFn = Arc<dyn Fn(&str, &[String]) -> Vec<Rank> + Send + Sync>;
 
 /// An item that matched a filter: Bubbles' `list.Rank`.
 ///

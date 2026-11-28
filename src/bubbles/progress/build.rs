@@ -1,7 +1,7 @@
 //! Building a bar: the `with_*` options, and the spring's settings.
 
 use super::spring::Spring;
-use super::{BLEND_END, BLEND_START, ColorFn, FULL_COLOR, Model, frame_seconds};
+use super::{BLEND_END, BLEND_START, FULL_COLOR, Model, frame_seconds};
 use crate::style::Color;
 
 impl Model {
@@ -50,7 +50,8 @@ impl Model {
         self
     }
 
-    /// Each cell's colour from `f`: `progress.WithColorFunc`.
+    /// Each cell's colour from `f`: `progress.WithColorFunc`. `f` is a
+    /// closure, so it may capture state; a plain `fn` works too.
     ///
     /// ```
     /// use petitcarnets::bubbles::progress;
@@ -66,8 +67,8 @@ impl Model {
     /// assert!(bar.view_as(1.0).contains("\x1b[34m█"));
     /// ```
     #[must_use]
-    pub fn with_color_fn(mut self, f: ColorFn) -> Self {
-        self.color_fn = Some(f);
+    pub fn with_color_fn(mut self, f: impl Fn(f64, f64) -> Color + Send + Sync + 'static) -> Self {
+        self.color_fn = Some(std::sync::Arc::new(f));
         self.blend.clear();
         self
     }

@@ -35,8 +35,8 @@ impl tea::Model for Picker {
     }
 
     fn view(&self) -> tea::View {
-        let title = Style::new().bold().paint("Choose an allocation method");
-        let selected = Style::new().fg(Color::CYAN).bold();
+        let title = Style::new().bold(true).paint("Choose an allocation method");
+        let selected = Style::new().fg(Color::CYAN).bold(true);
         let rows: Vec<String> = self
             .items
             .iter()
@@ -50,7 +50,7 @@ impl tea::Model for Picker {
             })
             .collect();
         let help = Style::new()
-            .dim()
+            .dim(true)
             .paint("up/down to move, enter to choose, q to quit");
         let content = format!("\n  {title}\n\n  {}\n\n  {help}", rows.join("\n  "));
         tea::View::new(content).with_alt_screen(true)

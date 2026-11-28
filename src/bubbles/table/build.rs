@@ -103,7 +103,7 @@ impl Model {
     /// #     t
     /// # }
     ///
-    /// let bold = tea::style::Style::new().bold();
+    /// let bold = tea::style::Style::new().bold(true);
     /// let styles = table::Styles {
     ///     header: bold,
     ///     ..table::Styles::default()

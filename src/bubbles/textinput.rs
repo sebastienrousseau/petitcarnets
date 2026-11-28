@@ -32,6 +32,7 @@ use super::Flags;
 use super::cursor::{self, Mode};
 use crate::style::Style;
 use crate::{Cmd, Msg as TeaMsg, batch};
+use std::sync::Arc;
 
 /// A text input's messages: its cursor's blinks.
 pub type Msg = cursor::Msg;
@@ -59,8 +60,24 @@ pub enum EchoMode {
     None,
 }
 
-/// A check run on every change; its error is kept in [`Model::err`].
-pub type ValidateFn = fn(&str) -> Result<(), String>;
+/// A check run on every change; its error is kept in [`Model::err`]:
+/// Bubbles' `textinput.ValidateFunc`. A closure, so it may capture
+/// state; a plain `fn` works too.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use std::sync::Arc;
+/// use tea::bubbles::textinput;
+///
+/// let max = 3;
+/// let mut input = textinput::Model::new();
+/// input.validate = Some(Arc::new(move |s: &str| {
+///     if s.len() > max { Err(format!("over {max}")) } else { Ok(()) }
+/// }));
+/// input.set_value("abcd");
+/// assert_eq!(input.err.as_deref(), Some("over 3"));
+/// ```
+pub type ValidateFn = Arc<dyn Fn(&str) -> Result<(), String> + Send + Sync>;
 
 /// A [`Model`] setting's bit.
 const FOCUS: u16 = 1 << 0;
@@ -80,7 +97,7 @@ const PASTE_PENDING: u16 = 1 << 2;
 /// input.placeholder = "command".into();
 /// assert_eq!(tea::style::strip_ansi(&input.view()), "$ command");
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Model {
     /// The last validation error, if any.
     pub err: Option<String>,
@@ -111,6 +128,33 @@ pub struct Model {
     matched: Vec<Vec<char>>,
     current_suggestion: usize,
     flags: Flags,
+}
+
+impl std::fmt::Debug for Model {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Model")
+            .field("err", &self.err)
+            .field("prompt", &self.prompt)
+            .field("placeholder", &self.placeholder)
+            .field("echo_mode", &self.echo_mode)
+            .field("echo_character", &self.echo_character)
+            .field("char_limit", &self.char_limit)
+            .field("key_map", &self.key_map)
+            .field("validate", &super::opaque(self.validate.as_ref()))
+            .field("show_suggestions", &self.show_suggestions)
+            .field("styles", &self.styles)
+            .field("width", &self.width)
+            .field("value", &self.value)
+            .field("pos", &self.pos)
+            .field("offset", &self.offset)
+            .field("offset_right", &self.offset_right)
+            .field("virtual_cursor", &self.virtual_cursor)
+            .field("suggestions", &self.suggestions)
+            .field("matched", &self.matched)
+            .field("current_suggestion", &self.current_suggestion)
+            .field("flags", &self.flags)
+            .finish()
+    }
 }
 
 impl Default for Model {
@@ -219,7 +263,7 @@ impl Model {
     /// use tea::bubbles::textinput;
     ///
     /// let mut styles = textinput::Styles::new(false);
-    /// styles.focused.prompt = tea::style::Style::new().bold();
+    /// styles.focused.prompt = tea::style::Style::new().bold(true);
     /// let mut input = textinput::Model::new();
     /// input.set_styles(styles);
     /// assert_eq!(input.styles(), styles);
@@ -393,7 +437,7 @@ impl Model {
     /// The text cleaned and validated, as a change from the keyboard.
     fn check(&self, chars: &[char]) -> Option<String> {
         let text: String = chars.iter().collect();
-        self.validate.and_then(|f| f(&text).err())
+        self.validate.as_ref().and_then(|f| f(&text).err())
     }
 }
 

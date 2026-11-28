@@ -196,7 +196,7 @@ impl Model {
     /// use petitcarnets::bubbles::spinner;
     /// use petitcarnets::style::{Style, strip_ansi};
     ///
-    /// let s = spinner::Model::new().with_style(Style::new().bold());
+    /// let s = spinner::Model::new().with_style(Style::new().bold(true));
     /// assert_eq!(s.view(), "\x1b[1m|\x1b[0m");
     /// assert_eq!(strip_ansi(&s.view()), "|");
     /// ```

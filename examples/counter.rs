@@ -24,9 +24,9 @@ impl tea::Model for Counter {
     }
 
     fn view(&self) -> tea::View {
-        let count = Style::new().bold().paint(&self.0.to_string());
+        let count = Style::new().bold(true).paint(&self.0.to_string());
         let help = Style::new()
-            .dim()
+            .dim(true)
             .paint("up/down or +/- to change, q to quit");
         // Full window, as before views chose their screen.
         tea::View::new(format!("\n  Count: {count}\n\n  {help}")).with_alt_screen(true)

@@ -215,3 +215,28 @@ fn the_cursor_at_the_wrap_edge_and_an_empty_placeholder() {
     assert!(strip_ansi(&p.view()).starts_with("┃   1"));
     assert!(!blink().is_none());
 }
+
+#[test]
+fn the_prompt_function_is_a_closure_that_keeps_state() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let calls = Arc::new(AtomicUsize::new(0));
+    let seen = Arc::clone(&calls);
+    let marker = String::from("│");
+    let mut m = focused(20, 2);
+    m.show_line_numbers = false;
+    m.set_prompt_func(2, move |info| {
+        let _ = seen.fetch_add(1, Ordering::Relaxed);
+        format!("{}{marker}", info.line_number)
+    });
+    m.set_width(20);
+    m.set_value("ab\ncd");
+    let copy = m.clone();
+    let view = strip_ansi(&m.view());
+    assert!(
+        view.starts_with("0│ab") && view.contains("\n1│cd"),
+        "{view:?}"
+    );
+    assert!(calls.load(Ordering::Relaxed) >= 2, "called for each line");
+    assert_eq!(strip_ansi(&copy.view()), view, "a clone shares it");
+    assert!(format!("{m:?}").contains("prompt_fn: Some(.."));
+}

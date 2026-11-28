@@ -415,7 +415,7 @@ impl Model {
         if self.is_blinked {
             self.text_style.paint(&self.char)
         } else {
-            self.style.reverse().paint(&self.char)
+            self.style.reverse(true).paint(&self.char)
         }
     }
 }

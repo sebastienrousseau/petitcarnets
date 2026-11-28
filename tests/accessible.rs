@@ -100,7 +100,7 @@ impl tea::Model for Printer {
     fn view(&self) -> tea::View {
         let red = tea::style::Style::new()
             .fg(tea::style::Color::RED)
-            .bold()
+            .bold(true)
             .paint("red");
         tea::View::new(format!("a {red} word   \nnext"))
             .with_cursor(tea::Cursor::new(1, 1))

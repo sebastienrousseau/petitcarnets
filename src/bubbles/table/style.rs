@@ -39,8 +39,8 @@ impl Default for Styles {
     /// Bubbles' `table.DefaultStyles`.
     fn default() -> Self {
         Self {
-            selected: Style::new().bold().fg(Color::Palette(212)),
-            header: Style::new().bold().padding(0, 1),
+            selected: Style::new().bold(true).fg(Color::Palette(212)),
+            header: Style::new().bold(true).padding(0, 1),
             cell: Style::new().padding(0, 1),
         }
     }

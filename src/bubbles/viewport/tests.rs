@@ -30,7 +30,7 @@ fn viewports_match_bubbles() {
         let mut v = Model::new(n(1), n(2));
         v.soft_wrap = row[4] == "true";
         if row[5] == "true" {
-            v.left_gutter = Some(gutter);
+            v.left_gutter = Some(Arc::new(gutter));
         }
         if n(3) > 0 {
             v.set_content(&numbered(n(3)));
@@ -70,7 +70,7 @@ fn a_framed_viewport_fills_its_height() {
     v.set_height(4);
     v.style = Style::new().border(crate::style::Border::NORMAL);
     v.fill_height = true;
-    v.style_line = Some(|_| Style::new());
+    v.style_line = Some(Arc::new(|_| Style::new()));
     v.set_content("a\r\nb");
     assert_eq!(v.content(), "a\nb");
     assert_eq!(
@@ -101,4 +101,32 @@ fn a_framed_viewport_fills_its_height() {
     assert_eq!(v.y_offset(), 0);
     v.set_height(0);
     assert_eq!(v.visible_line_count(), 0);
+}
+
+#[test]
+fn gutter_and_line_style_are_closures_that_keep_state() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let marked = 1;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let seen = Arc::clone(&calls);
+    let mut v = Model::new(5, 2);
+    v.left_gutter = Some(Arc::new(move |g: GutterContext| {
+        let _ = seen.fetch_add(1, Ordering::Relaxed);
+        if g.index == marked { "> " } else { "  " }.to_string()
+    }));
+    v.style_line = Some(Arc::new(move |i| {
+        if i == marked {
+            Style::new().bold(true)
+        } else {
+            Style::new()
+        }
+    }));
+    v.set_content("a\nb");
+    let copy = v.clone();
+    assert_eq!(v.view(), "  a  \n> \u{1b}[1mb\u{1b}[0m  ");
+    assert_eq!(copy.view(), v.view(), "a clone shares the closures");
+    assert!(calls.load(Ordering::Relaxed) > 0);
+    let debug = format!("{v:?}");
+    assert!(debug.contains("left_gutter: Some(..)"), "{debug}");
+    assert!(debug.contains("style_line: Some(..)"), "{debug}");
 }

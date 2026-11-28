@@ -392,7 +392,7 @@ impl<I: Item, D: ItemDelegate<I>> HelpKeyMap for Model<I, D> {
             k.accept_while_filtering.clone(),
             k.cancel_while_filtering.clone(),
         ]);
-        if let (false, Some(more)) = (filtering, self.additional_short_help_keys) {
+        if let (false, Some(more)) = (filtering, &self.additional_short_help_keys) {
             kb.extend(more());
         }
         kb.extend([k.quit.clone(), k.show_full_help.clone()]);
@@ -419,7 +419,7 @@ impl<I: Item, D: ItemDelegate<I>> HelpKeyMap for Model<I, D> {
             k.accept_while_filtering.clone(),
             k.cancel_while_filtering.clone(),
         ];
-        if let (false, Some(more)) = (filtering, self.additional_full_help_keys) {
+        if let (false, Some(more)) = (filtering, &self.additional_full_help_keys) {
             list_level.extend(more());
         }
         groups.push(list_level);

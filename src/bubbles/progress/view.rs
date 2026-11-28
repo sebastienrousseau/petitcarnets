@@ -46,7 +46,7 @@ impl Model {
         let total = self.width.saturating_sub(label);
         let filled = round_clamped(to_f64(total) * percent, total);
         let half = self.full == DEFAULT_FULL_CHAR_HALF_BLOCK;
-        let mut out = if let Some(f) = self.color_fn {
+        let mut out = if let Some(f) = &self.color_fn {
             colored_cells(self.full, filled, total, half, |t| f(percent, t))
         } else if self.blend.is_empty() {
             Style::new()
@@ -111,4 +111,28 @@ fn colored_cells(
             style.paint(&full.to_string())
         })
         .collect()
+}
+
+impl std::fmt::Debug for Model {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Model")
+            .field("full", &self.full)
+            .field("full_color", &self.full_color)
+            .field("empty", &self.empty)
+            .field("empty_color", &self.empty_color)
+            .field("show_percentage", &self.show_percentage)
+            .field("percent_format", &super::super::Opaque)
+            .field("percentage_style", &self.percentage_style)
+            .field("id", &self.id)
+            .field("tag", &self.tag)
+            .field("width", &self.width)
+            .field("spring", &self.spring)
+            .field("shown", &self.shown)
+            .field("target", &self.target)
+            .field("velocity", &self.velocity)
+            .field("blend", &self.blend)
+            .field("scale_blend", &self.scale_blend)
+            .field("color_fn", &super::super::opaque(self.color_fn.as_ref()))
+            .finish()
+    }
 }
