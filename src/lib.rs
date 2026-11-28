@@ -43,7 +43,21 @@
 //! # Ok::<(), tea::Error>(())
 //! ```
 //!
-//! *Petits carnets*: little notebooks. Linux, macOS and FreeBSD for now.
+//! A program that should also work with a screen reader runs with
+//! [`Program::with_accessible`], or in a terminal whose environment sets
+//! `ACCESSIBLE`: its frames are then printed as plain lines, with no
+//! redraws and no cursor movement.
+//!
+//! Guides, in the repository's `docs` directory: Bubble Tea's names in
+//! Rust (`go-to-rust.md`), moving from the bubbletea-rs crate
+//! (`migrating-from-bubbletea-rs.md`), how the crate works
+//! (`architecture.md`), the Bubble Tea issues it addresses (`issues.md`),
+//! and Bubble Tea's examples ported (`examples.md`).
+//!
+//! *Petits carnets*: little notebooks. Linux and macOS for now; the
+//! FreeBSD support in the code is not yet tested.
+
+#![deny(missing_docs)]
 
 mod ansi;
 mod backend;
@@ -98,18 +112,121 @@ pub use view::{Cursor, CursorShape, ProgressBar, ProgressBarState, View};
 pub mod testing;
 
 /// A program's state and behaviour. Bubble Tea's `tea.Model`.
+///
+/// ```
+/// use petitcarnets as tea;
+/// use tea::testing::TestProgram;
+///
+/// struct Greeter(String);
+///
+/// impl tea::Model for Greeter {
+///     type Msg = ();
+///
+///     fn update(&mut self, msg: tea::Msg<()>) -> tea::Cmd<()> {
+///         match msg {
+///             tea::Msg::KeyPress(k) if k == "enter" => tea::quit(),
+///             tea::Msg::KeyPress(k) => {
+///                 self.0 += &k.text;
+///                 tea::Cmd::none()
+///             }
+///             _ => tea::Cmd::none(),
+///         }
+///     }
+///
+///     fn view(&self) -> tea::View {
+///         format!("Hello, {}!", self.0).into()
+///     }
+/// }
+///
+/// let mut test = TestProgram::new(Greeter(String::new()), 20, 2);
+/// test.type_text("Ada");
+/// assert_eq!(test.screen().text(), "Hello, Ada!");
+/// ```
 pub trait Model {
     /// The model's own messages, from its [`Cmd`]s and [`Sender`]s.
     type Msg: Send + 'static;
 
     /// A command to run at the start; none by default.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use std::time::Duration;
+    /// use tea::testing::TestProgram;
+    ///
+    /// struct Timeout;
+    ///
+    /// impl tea::Model for Timeout {
+    ///     type Msg = ();
+    ///     fn init(&mut self) -> tea::Cmd<()> {
+    ///         tea::tick(Duration::from_secs(2), |_| ())
+    ///     }
+    ///     fn update(&mut self, msg: tea::Msg<()>) -> tea::Cmd<()> {
+    ///         match msg {
+    ///             tea::Msg::App(()) => tea::quit(),
+    ///             _ => tea::Cmd::none(),
+    ///         }
+    ///     }
+    ///     fn view(&self) -> tea::View {
+    ///         "waiting".into()
+    ///     }
+    /// }
+    ///
+    /// let mut test = TestProgram::new(Timeout, 10, 1);
+    /// assert!(test.wait_finished(Duration::from_secs(3)));
+    /// assert_eq!(test.elapsed(), Duration::from_secs(2));
+    /// ```
     fn init(&mut self) -> Cmd<Self::Msg> {
         Cmd::none()
     }
 
     /// Changes the state for one message and returns a command to run.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::Model as _;
+    ///
+    /// struct Clicks(u32);
+    ///
+    /// impl tea::Model for Clicks {
+    ///     type Msg = ();
+    ///     fn update(&mut self, msg: tea::Msg<()>) -> tea::Cmd<()> {
+    ///         if let tea::Msg::App(()) = msg {
+    ///             self.0 += 1;
+    ///         }
+    ///         tea::Cmd::none()
+    ///     }
+    ///     fn view(&self) -> tea::View {
+    ///         self.0.to_string().into()
+    ///     }
+    /// }
+    ///
+    /// let mut clicks = Clicks(0);
+    /// assert!(clicks.update(tea::Msg::App(())).is_none());
+    /// assert_eq!(clicks.0, 1);
+    /// ```
     fn update(&mut self, msg: Msg<Self::Msg>) -> Cmd<Self::Msg>;
 
     /// What to show for the current state.
+    ///
+    /// ```
+    /// use petitcarnets as tea;
+    /// use tea::Model as _;
+    ///
+    /// struct Fullscreen;
+    ///
+    /// impl tea::Model for Fullscreen {
+    ///     type Msg = ();
+    ///     fn update(&mut self, _: tea::Msg<()>) -> tea::Cmd<()> {
+    ///         tea::Cmd::none()
+    ///     }
+    ///     fn view(&self) -> tea::View {
+    ///         tea::View::new("full window").with_alt_screen(true)
+    ///     }
+    /// }
+    ///
+    /// let view = Fullscreen.view();
+    /// assert_eq!(view.content, "full window");
+    /// assert!(view.alt_screen);
+    /// ```
     fn view(&self) -> View;
 }

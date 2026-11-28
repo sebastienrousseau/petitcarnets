@@ -35,6 +35,17 @@ pub(super) struct Settings {
     pub(super) suspend_key: bool,
     /// Whether the backend is a real terminal.
     pub(super) terminal: bool,
+    /// How frames reach the terminal.
+    pub(super) frames: Frames,
+}
+
+/// How frames reach the terminal.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Frames {
+    /// Drawn in cells, only what changed: the default.
+    Cells,
+    /// Printed as plain lines, for screen readers.
+    Lines,
 }
 
 /// The loop's state besides the model.
@@ -65,6 +76,10 @@ impl<A: Send + 'static, C: Clock> Loop<A, C> {
         clock: C,
     ) -> Self {
         let mut modes = Modes::default();
+        if settings.frames == Frames::Lines {
+            renderer.set_accessible(settings.terminal);
+            modes.keep_autowrap();
+        }
         renderer.set_color_profile(settings.profile);
         modes.set_color_profile(settings.profile);
         Self {
@@ -161,7 +176,7 @@ impl<A: Send + 'static, C: Clock> Loop<A, C> {
             self.take_back_at_end(graceful, model, backend)?;
         }
         if graceful {
-            self.draw(&model.view(), backend)?;
+            self.draw(&self.view_of(model), backend)?;
             self.drain(inbox, backend, false)?;
             self.renderer.finish(backend.output())?;
         } else {
@@ -253,7 +268,7 @@ impl<A: Send + 'static, C: Clock> Loop<A, C> {
     }
 
     /// A terminal that says it has `RGB` or `Tc` shows 24-bit colour, as
-    /// Bubble Tea decides; unlike Bubble Tea (its issue #1773), a profile
+    /// Bubble Tea decides; unlike Bubble Tea (its pull request #1773), a profile
     /// the program set is kept.
     fn capability(&mut self, capability: &str) {
         let name = capability.split('=').next().unwrap_or_default();
@@ -312,18 +327,23 @@ impl<A: Send + 'static, C: Clock> Loop<A, C> {
 
     /// Prints above the frame. The frame for the state the lines follow
     /// goes on screen first, unless it enters the alternate screen: then
-    /// the lines go on the normal screen, where they stay.
+    /// the lines go on the normal screen, where they stay. A frame the
+    /// lines pushed off the screen is drawn again.
     fn print<M: Model<Msg = A>>(
         &mut self,
         model: &M,
         text: &str,
         backend: &mut impl Backend,
     ) -> Result<(), Error> {
-        let view = model.view();
+        let view = self.view_of(model);
         if self.dirty && !view.alt_screen {
             self.draw(&view, backend)?;
         }
-        Ok(self.renderer.insert_above(text, backend.output())?)
+        self.renderer.insert_above(text, backend.output())?;
+        // Lines taller than the room above the frame push it off the
+        // screen: draw it again (Bubble Tea's issue #1822).
+        self.dirty |= self.renderer.must_draw();
+        Ok(())
     }
 
     /// Draws if something changed and the frame rate allows: at once
@@ -349,7 +369,18 @@ impl<A: Send + 'static, C: Clock> Loop<A, C> {
                 }
             }
         }
-        self.draw(&model.view(), backend)
+        self.draw(&self.view_of(model), backend)
+    }
+
+    /// What `model` shows now; printed as lines, a view stays on the
+    /// normal screen and has no cursor.
+    fn view_of<M: Model<Msg = A>>(&self, model: &M) -> View {
+        let mut view = model.view();
+        if self.settings.frames == Frames::Lines {
+            view.alt_screen = false;
+            view.cursor = None;
+        }
+        view
     }
 
     /// Draws `view`: screen switch, modes, then content.

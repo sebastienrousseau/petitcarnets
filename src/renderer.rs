@@ -17,6 +17,7 @@ pub(crate) mod cell;
 mod diff;
 mod insert;
 pub(crate) mod layout;
+mod lines;
 mod scroll;
 mod writer;
 
@@ -25,6 +26,7 @@ use crate::msg::Size;
 use crate::unicode::WidthMethod;
 use crate::view::View;
 use layout::{Frame, layout};
+use lines::Lines;
 use std::io::{self, Write};
 use writer::{Addressing, Writer};
 
@@ -43,6 +45,8 @@ pub(crate) struct Renderer {
     shown: Option<bool>,
     pending: Pending,
     saved: Option<(Writer, Frame)>,
+    /// Accessible output: frames printed as lines instead.
+    lines: Option<Lines>,
 }
 
 impl Renderer {
@@ -62,12 +66,25 @@ impl Renderer {
             shown: None,
             pending: Pending::default(),
             saved: None,
+            lines: None,
         }
+    }
+
+    /// Prints frames as plain lines from now on, for screen readers,
+    /// showing the terminal's cursor first if `show_cursor`.
+    pub(crate) fn set_accessible(&mut self, show_cursor: bool) {
+        self.lines = Some(Lines::new(show_cursor));
     }
 
     /// The window's size, as the renderer knows it.
     pub(crate) const fn size(&self) -> Size {
         self.size
+    }
+
+    /// Whether the next frame must be drawn even if the view is the
+    /// same: after a clear, an erase or a screen switch.
+    pub(crate) const fn must_draw(&self) -> bool {
+        self.pending.erase || self.pending.clear || self.pending.switched
     }
 
     /// Whether frames are drawn on the alternate screen.
@@ -114,6 +131,9 @@ impl Renderer {
     /// first, an inline frame erased where it is. For a screen something
     /// else may have written over.
     pub(crate) fn repaint(&mut self) {
+        if let Some(lines) = self.lines.as_mut() {
+            lines.forget();
+        }
         self.pending.erase = true;
         self.pending.clear |= self.alt;
         self.shown = None;
@@ -124,6 +144,9 @@ impl Renderer {
     /// frame is then drawn in full from wherever the cursor is, as after
     /// [`Renderer::new`].
     pub(crate) fn release(&mut self, out: &mut dyn Write) -> io::Result<()> {
+        if let Some(lines) = self.lines.as_mut() {
+            lines.forget();
+        }
         let written = self.close(out, if self.alt { None } else { Some(0) });
         let (width, height) = (usize::from(self.size.width), usize::from(self.size.height));
         self.writer = if self.alt {
@@ -178,6 +201,9 @@ impl Renderer {
 
     /// Draws `view`'s content and cursor, writing only what changed.
     pub(crate) fn render(&mut self, view: &View, out: &mut dyn Write) -> io::Result<()> {
+        if let Some(lines) = self.lines.as_mut() {
+            return write_out(out, &lines.frame(&view.content, self.method, self.profile));
+        }
         let frame = self.layout(&view.content);
         let cursor = self.cursor_of(view, &frame);
         if self.unchanged(&frame, cursor) {
@@ -324,6 +350,9 @@ impl Renderer {
     /// the width method in use, wide characters included. Does nothing
     /// on the alternate screen, as in Bubble Tea.
     pub(crate) fn insert_above(&mut self, text: &str, out: &mut dyn Write) -> io::Result<()> {
+        if let Some(lines) = self.lines.as_mut() {
+            return write_out(out, &lines.print(text, self.method, self.profile));
+        }
         if self.alt || text.is_empty() {
             return Ok(());
         }
