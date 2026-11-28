@@ -1,0 +1,7 @@
+size 80x14, main screen
+cursor 0,4 shown, style 0
+modes 7 25
+keyboard flags 0, modifyOtherKeys 0
+--------------------------------------------------------------------------------
+
+  See you later!

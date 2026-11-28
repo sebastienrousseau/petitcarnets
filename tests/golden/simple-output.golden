@@ -1,0 +1,5 @@
+\u{1b}[?7l\u{1b}[?2004h\u{1b}[>4;2m\u{1b}[>1u\u{1b}[?25l\r\u{1b}[JHi. This program will exit in 5 seconds.\r\n
+\r\n
+To quit sooner press ctrl-c, or press ctrl-z to suspend...\r\n
+\u{1b}[3A\u{1b}[30C4\u{1b}[3B\r\n
+\u{1b}[J\u{1b}[?25h\u{1b}[>4m\u{1b}[<u\u{1b}[?2004l\u{1b}[?7h

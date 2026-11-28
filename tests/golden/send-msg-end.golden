@@ -1,0 +1,13 @@
+size 60x12, main screen
+cursor 0,10 shown, style 0
+modes 7 25
+keyboard flags 0, modifyOtherKeys 0
+------------------------------------------------------------
+
+  That's all for today!
+
+  ..............................
+  ..............................
+  🍔 Ate an apple 120ms
+  🍔 Ate tacos 999ms
+  🍔 Ate some ramen 450ms

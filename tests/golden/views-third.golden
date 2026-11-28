@@ -1,0 +1,16 @@
+size 80x14, main screen
+cursor 20,8 hidden, style 0
+modes 2004
+keyboard flags 1, modifyOtherKeys 2
+--------------------------------------------------------------------------------
+
+  What to do today?
+
+  [ ] Plant carrots
+  [ ] Go to the market
+  [x] Read something
+  [ ] See friends
+
+  Program quits in 7 seconds
+
+  j/k, up/down: select • enter: choose • q, esc: quit

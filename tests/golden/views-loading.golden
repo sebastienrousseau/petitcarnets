@@ -1,0 +1,12 @@
+size 80x14, main screen
+cursor 77,6 hidden, style 0
+modes 2004
+keyboard flags 1, modifyOtherKeys 2
+--------------------------------------------------------------------------------
+
+  Carrot planting?
+
+  Cool, we'll need libgarden and vegeutils...
+
+  Downloading...
+  ███████████████████████████████████████████████████░░░░░░░░░░░░░░░░░░░░  72%

@@ -1,0 +1,12 @@
+size 50x8, main screen
+cursor 0,4 hidden, style 0
+modes 2004
+keyboard flags 1, modifyOtherKeys 2
+--------------------------------------------------
+The window size is: 60x8
+The window size is: 60x8
+The window size is: 50x8
+The window size is: 50x8
+
+When you're done press q to quit.
+Press any other key to query the window-size.

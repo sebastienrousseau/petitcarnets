@@ -1,0 +1,7 @@
+size 70x4, main screen
+cursor 58,1 hidden, style 0
+modes 2004
+keyboard flags 1, modifyOtherKeys 2
+----------------------------------------------------------------------
+Press any key to quit.
+(When this program quits, it will vanish without a trace.)

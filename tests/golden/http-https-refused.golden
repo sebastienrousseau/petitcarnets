@@ -1,0 +1,6 @@
+size 120x4, main screen
+cursor 101,0 hidden, style 0
+modes 2004
+keyboard flags 1, modifyOtherKeys 2
+------------------------------------------------------------------------------------------------------------------------
+Checking https://charm.sh/...something went wrong: only http:// URLs: the standard library has no TLS
